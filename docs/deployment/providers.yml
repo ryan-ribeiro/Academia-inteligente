@@ -16,6 +16,8 @@ services:
       OLLAMA_HOST: 0.0.0.0:11434
       OLLAMA_LLM_LIBRARY: cuda_v12
       CUDA_VISIBLE_DEVICES: "0"
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+      OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-f16}
     expose:
       - "11434"
     volumes:
@@ -131,7 +133,7 @@ services:
       - compreface-api
       - compreface-admin
     healthcheck:
-      test: [CMD, wget, --quiet, --spider, http://127.0.0.1/]
+      test: [CMD, curl, --fail, --silent, --output, /dev/null, http://127.0.0.1/]
       interval: 10s
       timeout: 3s
       retries: 12

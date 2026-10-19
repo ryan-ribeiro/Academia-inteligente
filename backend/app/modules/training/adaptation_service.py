@@ -16,7 +16,9 @@ from app.integrations.ai import (
 )
 from app.modules.clients.models import Account, Client
 from app.modules.equipment.service import EquipmentService
+from app.modules.knowledge.service import KnowledgeCitationError, KnowledgeService
 from app.modules.onboarding.models import Onboarding
+from app.modules.training.knowledge_query import retrieve_training_knowledge
 from app.modules.training.models import (
     TrainingAdaptationOperation,
     TrainingAdaptationProposal,
@@ -65,9 +67,15 @@ class InvalidEquipmentReferenceError(AdaptationStateError):
 class TrainingAdaptationService:
     """Keeps proposed changes separate from plans until instructor approval."""
 
-    def __init__(self, provider: TrainingAdaptationProvider | None = None) -> None:
+    def __init__(
+        self,
+        provider: TrainingAdaptationProvider | None = None,
+        *,
+        knowledge_service: KnowledgeService | None = None,
+    ) -> None:
         self._provider = provider or training_adaptation_provider_from_environment()
         self._equipment = EquipmentService()
+        self._knowledge = knowledge_service or KnowledgeService()
 
     def generate(
         self,
@@ -90,17 +98,33 @@ class TrainingAdaptationService:
         if existing is not None:
             return existing
 
+        if TrainingLifecycleService().find_proposal(session, client_id=client_id):
+            raise ActiveTrainingProposalExistsError
+
         source = self._source_message(session, client_id, source_client_request_id)
-        response = self._retry(
-            lambda: self._provider.generate_adaptation(
-                self._context(session, client_id, base, source, reason.strip())
-            )
+        context = self._context(session, client_id, base, source, reason.strip())
+        evidence = retrieve_training_knowledge(
+            self._knowledge,
+            session,
+            client_id,
+            source.content,
+            context["relevant_onboarding"],
         )
+        context["knowledge"] = evidence.as_context()
+        response = self._retry(lambda: self._provider.generate_adaptation(context))
         try:
             operations = [
                 AdaptationOperationInput.model_validate(value) for value in response.operations
             ]
-        except ValidationError as error:
+            knowledge = evidence.resolve_citations(
+                response.citations,
+                (
+                    response.knowledge_status
+                    if "knowledge_status" in response.model_fields_set
+                    else None
+                ),
+            )
+        except (ValidationError, KnowledgeCitationError) as error:
             raise AdaptationStateError from error
         # Match the lifecycle lock order after the external call, before equipment
         # locks/persistence. This avoids a model/client lock inversion at approval.
@@ -118,10 +142,21 @@ class TrainingAdaptationService:
             reason=reason.strip(),
             explanation=response.explanation.strip(),
             status="proposed",
+            citations=knowledge.citations,
+            knowledge_status=knowledge.knowledge_status,
+            knowledge_limitations=knowledge.knowledge_limitations,
         )
         session.add(proposal)
         session.flush()
         self._replace_operations(session, proposal, operations)
+        session.flush()
+        try:
+            # The client must be able to preview the exact complete plan that
+            # acceptance will submit, before any professional-review write.
+            self._apply(session, base, proposal)
+        except ValidationError:
+            session.rollback()
+            raise AdaptationStateError from None
         session.commit()
         session.refresh(proposal)
         return proposal
@@ -171,6 +206,10 @@ class TrainingAdaptationService:
                     commit=False,
                 )
                 proposal.resulting_version_id = draft.id
+                draft.submitted_for_review_at = datetime.now(UTC)
+                draft.citations = list(proposal.citations)
+                draft.knowledge_status = proposal.knowledge_status
+                draft.knowledge_limitations = proposal.knowledge_limitations
             except (ValidationError, InvalidTrainingContentError):
                 session.rollback()
                 raise AdaptationStateError from None
@@ -292,11 +331,13 @@ class TrainingAdaptationService:
                 Onboarding.client_id == client_id, Onboarding.status == "completed"
             )
         )
-        health_terms = ("dor", "les", "limit", "saúde", "joelho")
         health: dict[str, object | None] = {}
-        if onboarding is not None and any(term in reason.lower() for term in health_terms):
+        if onboarding is not None:
             health = {
+                "training_goal": onboarding.training_goal,
+                "training_experience": onboarding.training_experience,
                 "limitations_or_complaints": onboarding.limitations_or_complaints,
+                "medications": onboarding.medications,
                 "health_conditions": onboarding.health_conditions,
             }
         items = session.scalars(
@@ -318,6 +359,10 @@ class TrainingAdaptationService:
                         "repetitions": item.repetitions,
                         "load_guidance": item.load_guidance,
                         "rest_seconds": item.rest_seconds,
+                        "equipment_requirement": item.equipment_requirement,
+                        "equipment_model_id": str(item.equipment_model_id)
+                        if item.equipment_model_id
+                        else None,
                     }
                     for item in items
                 ],

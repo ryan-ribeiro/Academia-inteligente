@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.clients.models import Client, Employee
 from app.modules.training.models import TrainingAdaptationProposal, TrainingPlanVersion
-from app.modules.training.service import TrainingVersionNotFoundError
+from app.modules.training.service import TrainingLifecycleService, TrainingVersionNotFoundError
 
 
 def responsible_name(session: Session, version: TrainingPlanVersion) -> str | None:
@@ -22,7 +22,10 @@ def pending_versions(session: Session, offset: int, limit: int) -> list[Training
     return list(
         session.scalars(
             select(TrainingPlanVersion)
-            .where(TrainingPlanVersion.status == "proposal")
+            .where(
+                TrainingPlanVersion.status == "proposal",
+                TrainingPlanVersion.submitted_for_review_at.is_not(None),
+            )
             .order_by(TrainingPlanVersion.created_at, TrainingPlanVersion.id)
             .offset(offset)
             .limit(limit)
@@ -32,7 +35,7 @@ def pending_versions(session: Session, offset: int, limit: int) -> list[Training
 
 def pending_version(session: Session, version_id: UUID) -> TrainingPlanVersion:
     version = session.get(TrainingPlanVersion, version_id)
-    if version is None or version.status != "proposal":
+    if version is None or version.status != "proposal" or version.submitted_for_review_at is None:
         raise TrainingVersionNotFoundError
     return version
 
@@ -55,6 +58,13 @@ def review_metadata(session: Session, version: TrainingPlanVersion) -> dict[str,
         "id": str(version.id),
         "client_name": profile.full_name if profile else client.name if client else "",
         "source": "adaptation" if adaptation else version.origin,
+        "append_target": {
+            "id": str(current.id),
+            "revision": current.revision,
+            **TrainingLifecycleService.content(session, current).model_dump(mode="json"),
+        }
+        if current and current.plan_id != version.plan_id and not adaptation
+        else None,
         "current_responsible_instructor_name": responsible_name(session, current)
         if current
         else None,

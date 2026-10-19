@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react'
 
 import { ClientShell } from './components/application-shell'
 import { RouterButtonLink } from './components/router-button-link'
+import { TrainingDraftReviewActions } from './components/training-draft-review-actions'
+import { TrainingExerciseTable, trainingRows, trainingTitle } from './components/training-exercise-table'
+import { TrainingKnowledgeSources } from './components/training-knowledge-sources'
 import { EmptyState, LoadingState, PageHeader, StatusNotice } from './components/ui'
 import { createInitialTrainingProposal, getCurrentTrainingPlan, getOwnTrainingDrafts, type CurrentTrainingPlan, type TrainingPlanDraft } from './training-plan'
 
@@ -123,19 +126,15 @@ export function CurrentTrainingPage({ accessToken, onSignOut }: CurrentTrainingP
               <Stack spacing={2}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
                   <Typography color="warning.main" variant="overline">Rascunho — ainda não aprovado</Typography>
-                  <Chip color="warning" label="Aguardando instrutor" size="small" />
+                  <Chip color="warning" label={draft.submitted_for_review_at ? 'Enviado ao instrutor' : 'Aguardando sua confirmação'} size="small" />
                 </Stack>
-                <Typography component="h2" sx={{ overflowWrap: 'anywhere' }} variant="h3">{draft.name}</Typography>
-                <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{draft.objective}</Typography>
+                <Typography component="h2" sx={{ overflowWrap: 'anywhere' }} variant="h3">{trainingTitle(draft.name)}</Typography>
+                <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Objetivo: {draft.objective}</Typography>
+                <Typography>Status: Aguardando revisão do instrutor</Typography>
                 <StatusNotice severity="info">Este é apenas um rascunho. Seu instrutor precisa revisar, aprovar e ativar a ficha antes que ela se torne seu treino atual.</StatusNotice>
-                <Stack divider={<Divider flexItem />} spacing={0}>
-                  {draft.items.map((item) => <Box component="article" key={item.position} sx={{ minWidth: 0, py: 1.5 }}>
-                    <Typography component="h3" sx={{ overflowWrap: 'anywhere' }} variant="h4">{item.position}. {item.exercise_name}</Typography>
-                    <Typography color="text.secondary" variant="body2">{item.sets} séries · {item.repetitions} repetições · {restLabel(item.rest_seconds)}</Typography>
-                    <Typography color="text.secondary" variant="body2">{item.load_guidance}</Typography>
-                    {item.equipment_requirement && <Typography>Equipamento registrado: {item.equipment_requirement}</Typography>}
-                  </Box>)}
-                </Stack>
+                <TrainingExerciseTable rows={trainingRows(draft.items)} />
+                <TrainingKnowledgeSources {...draft} />
+                <TrainingDraftReviewActions accessToken={accessToken} draft={draft} onSubmitted={(updated) => setDrafts((items) => items.map((item) => item.id === updated.id ? updated : item))} />
               </Stack>
             </CardContent>
           </Card>

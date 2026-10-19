@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.clients.models import Account, Client, Employee
 from app.modules.equipment.service import EquipmentService
+from app.modules.knowledge.service import KnowledgeResult
 from app.modules.training.models import (
     TrainingAdaptationProposal,
     TrainingPlan,
@@ -68,6 +69,7 @@ class TrainingLifecycleService:
         created_by: str,
         origin: PlanOrigin,
         created_employee_id: UUID | None = None,
+        knowledge: KnowledgeResult | None = None,
         commit: bool = True,
     ) -> TrainingPlanVersion:
         self._lock_client(session, client_id)
@@ -86,6 +88,7 @@ class TrainingLifecycleService:
                 created_by,
                 origin,
                 created_employee_id=created_employee_id,
+                knowledge=knowledge,
                 commit=commit,
             )
         except IntegrityError:
@@ -110,15 +113,54 @@ class TrainingLifecycleService:
         actor: str,
         expected_revision: int,
         commit: bool = True,
+        standalone: bool = False,
     ) -> TrainingPlanVersion:
         version = self._version(session, plan_id, version_number, lock=True)
         if version.status != "proposal":
             raise ImmutableTrainingVersionError
         if version.revision != expected_revision:
             raise ConcurrentTrainingUpdateError
-        self.validate_equipment(session, data, version)
+        if actor != "ai" and version.submitted_for_review_at is None:
+            raise InvalidTrainingTransitionError
+        self.validate_equipment(session, data, None if standalone else version)
         try:
+            if standalone:
+                # A newly requested sheet replaces the editable draft's content,
+                # not its approved base. Keep it appendable even when the sole
+                # draft previously represented an edit of the current plan.
+                historical = session.scalar(
+                    select(TrainingPlanVersion.id)
+                    .where(
+                        TrainingPlanVersion.plan_id == version.plan_id,
+                        TrainingPlanVersion.id != version.id,
+                    )
+                    .limit(1)
+                )
+                if historical is not None:
+                    plan = TrainingPlan(client_id=version.client_id)
+                    session.add(plan)
+                    session.flush()
+                    version.plan_id, version.version_number = plan.id, 1
+                for adaptation in session.scalars(
+                    select(TrainingAdaptationProposal)
+                    .where(TrainingAdaptationProposal.resulting_version_id == version.id)
+                    .with_for_update()
+                ):
+                    # Retain the original operations as history, independently
+                    # from this explicitly requested replacement sheet.
+                    adaptation.status = "superseded"
+                    adaptation.resulting_version_id = None
             self._replace_content(session, version, data)
+            if actor == "ai":
+                version.submitted_for_review_at = None
+            # A manual edit may invalidate the old AI claim-to-evidence mapping.
+            if actor != "ai":
+                version.citations = []
+                version.knowledge_status = "insufficient_evidence"
+                version.knowledge_limitations = (
+                    "O conteúdo foi editado pelo instrutor; a fundamentação anterior "
+                    "não foi revalidada para esta versão."
+                )
             version.revision += 1
             version.updated_at = datetime.now(UTC)
             if commit:
@@ -171,6 +213,105 @@ class TrainingLifecycleService:
             preserved=source,
         )
 
+    def append_to_current(
+        self,
+        session: Session,
+        *,
+        version_id: UUID,
+        expected_revision: int,
+        current_version_id: UUID,
+        expected_current_revision: int,
+        selected_positions: list[int],
+    ) -> TrainingPlanVersion:
+        draft = session.get(TrainingPlanVersion, version_id)
+        if draft is None:
+            raise TrainingVersionNotFoundError
+        self._lock_client(session, draft.client_id)
+        draft = session.scalar(
+            select(TrainingPlanVersion)
+            .where(TrainingPlanVersion.id == version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if draft is None:
+            raise TrainingVersionNotFoundError
+        if draft.status != "proposal" or draft.submitted_for_review_at is None:
+            raise InvalidTrainingTransitionError
+        if draft.revision != expected_revision:
+            raise ConcurrentTrainingUpdateError
+        current = session.scalar(
+            select(TrainingPlanVersion)
+            .join(TrainingPlan)
+            .where(
+                TrainingPlanVersion.id == current_version_id,
+                TrainingPlanVersion.client_id == draft.client_id,
+                TrainingPlanVersion.status == "current",
+                TrainingPlan.is_current,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current is None or current.revision != expected_current_revision:
+            raise ConcurrentTrainingUpdateError
+        adaptation = session.scalar(
+            select(TrainingAdaptationProposal.id).where(
+                TrainingAdaptationProposal.resulting_version_id == draft.id
+            )
+        )
+        if draft.plan_id == current.plan_id or adaptation is not None:
+            # Such drafts already contain the base plan; appending would duplicate it.
+            raise InvalidTrainingTransitionError
+        base = self.content(session, current)
+        additions = self.content(session, draft)
+        if (
+            not selected_positions
+            or len(set(selected_positions)) != len(selected_positions)
+            or any(
+                type(position) is not int or not 1 <= position <= len(additions.items)
+                for position in selected_positions
+            )
+        ):
+            raise InvalidTrainingContentError
+        selected = [
+            item
+            for position, item in enumerate(additions.items, 1)
+            if position in selected_positions
+        ]
+        try:
+            merged = TrainingPlanVersionInput(
+                name=base.name, objective=base.objective, items=[*base.items, *selected]
+            )
+        except ValidationError:
+            raise InvalidTrainingContentError from None
+        self.validate_equipment(session, merged, current)
+        next_number = (
+            session.scalar(
+                select(func.max(TrainingPlanVersion.version_number)).where(
+                    TrainingPlanVersion.plan_id == current.plan_id
+                )
+            )
+            + 1
+        )
+        try:
+            # A proposal is editable. Move this sole draft onto the current plan's
+            # next version, keeping its stable review ID and all approved history.
+            draft.plan_id = current.plan_id
+            draft.version_number = next_number
+            self._replace_content(session, draft, merged)
+            draft.citations = []
+            draft.knowledge_status = "insufficient_evidence"
+            draft.knowledge_limitations = (
+                "O instrutor incorporou os exercícios ao treino atual. A fundamentação da "
+                "sugestão original não foi revalidada para a ficha combinada."
+            )
+            draft.revision += 1
+            draft.updated_at = datetime.now(UTC)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        return draft
+
     def approve(
         self,
         session: Session,
@@ -185,6 +326,8 @@ class TrainingLifecycleService:
             raise InvalidTrainingTransitionError
         if version.revision != expected_revision:
             raise ConcurrentTrainingUpdateError
+        if version.submitted_for_review_at is None:
+            raise InvalidTrainingTransitionError
         employee = session.scalar(
             select(Employee)
             .join(Account)
@@ -273,6 +416,7 @@ class TrainingLifecycleService:
         commit: bool = True,
         preserved: TrainingPlanVersion | None = None,
         created_employee_id: UUID | None = None,
+        knowledge: KnowledgeResult | None = None,
     ) -> TrainingPlanVersion:
         self.validate_equipment(session, data, preserved)
         version = TrainingPlanVersion(
@@ -284,7 +428,11 @@ class TrainingLifecycleService:
             objective=data.objective.strip(),
             origin=origin,
             created_by=actor,
+            submitted_for_review_at=datetime.now(UTC) if origin == "instructor" else None,
             created_employee_id=created_employee_id,
+            citations=knowledge.citations if knowledge else [],
+            knowledge_status=knowledge.knowledge_status if knowledge else "insufficient_evidence",
+            knowledge_limitations=knowledge.knowledge_limitations if knowledge else "",
         )
         session.add(version)
         session.flush()
@@ -292,6 +440,43 @@ class TrainingLifecycleService:
         if commit:
             session.commit()
             session.refresh(version)
+        return version
+
+    def submit_for_review(
+        self,
+        session: Session,
+        *,
+        subject: str,
+        version_id: UUID,
+        expected_revision: int,
+    ) -> TrainingPlanVersion:
+        owned = session.scalar(
+            select(TrainingPlanVersion)
+            .join(Client, Client.id == TrainingPlanVersion.client_id)
+            .join(Account, Account.id == Client.account_id)
+            .where(
+                TrainingPlanVersion.id == version_id,
+                Account.keycloak_subject == subject,
+                Account.account_active,
+                Client.active,
+            )
+        )
+        if owned is None:
+            raise TrainingVersionNotFoundError
+        version = self._version(session, owned.plan_id, owned.version_number, lock=True)
+        if version.status != "proposal":
+            raise InvalidTrainingTransitionError
+        if version.revision != expected_revision:
+            raise ConcurrentTrainingUpdateError
+        if version.submitted_for_review_at is None:
+            version.submitted_for_review_at = datetime.now(UTC)
+            version.updated_at = version.submitted_for_review_at
+            version.revision += 1
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
         return version
 
     def _replace_content(

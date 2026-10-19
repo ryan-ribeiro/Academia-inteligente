@@ -1,8 +1,17 @@
 """Local professional fixtures; no external identity service calls."""
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 
 from app.modules.clients.models import Account, Employee, PersonProfile
+
+
+def submitted_draft(session, version):
+    """Arrange a draft whose client confirmation predates the review under test."""
+    version.submitted_for_review_at = datetime.now(UTC)
+    session.commit()
+    return version
 
 
 def instructor(session, subject="instructor-1", name="Instrutor"):

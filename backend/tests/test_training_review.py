@@ -6,7 +6,7 @@ from test_clients import AsgiClient
 from test_training_adaptations import FakeAdaptationProvider, adjust_response, source_message
 from test_training_lifecycle import client_id, data
 from test_training_lifecycle import session as session
-from training_fixtures import instructor
+from training_fixtures import instructor, submitted_draft
 
 from app.database import get_database_session
 from app.main import create_app
@@ -30,8 +30,11 @@ from app.modules.training.service import (
 
 
 def draft(session):
-    return TrainingLifecycleService().create_proposal(
-        session, client_id=client_id(session), data=data(), created_by="ai", origin="ai"
+    return submitted_draft(
+        session,
+        TrainingLifecycleService().create_proposal(
+            session, client_id=client_id(session), data=data(), created_by="ai", origin="ai"
+        ),
     )
 
 

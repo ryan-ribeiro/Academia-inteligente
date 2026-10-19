@@ -161,6 +161,26 @@ palette, or page composition.
   session → exercise → sets/repetitions/time/load/rest → instructions. Group
   related values rather than giving every value a separate card. Review,
   proposal, approved, and history states remain distinct where approved.
+  Client AI proposals show a division title, the client's goal in plain language,
+  the pending instructor-review status, and a semantic exercise table with order,
+  exercise, sets, repetitions or duration, individual load guidance, and rest.
+  A multi-day proposal shows separate `Treino A`, `Treino B`, `Treino C` sections,
+  each with its own complete ordered table. Keep day labels visible in section
+  titles and restart row numbering within each table; reuse the existing shared
+  table renderer and preserve all exercises and source information.
+  Keep wide tables inside a keyboard-accessible horizontal scroll region on
+  small screens. Retain knowledge sources and limitations next to the proposal.
+  The client explicitly sends a satisfactory draft for instructor review from
+  the chat or current-training page; show unsent, sending, sent, and error states.
+  Sending never presents the proposal as approved or active.
+  Exercise requests can target one or several muscles. Keep the sheet focused
+  on those requested groups. **Enviar rascunho para minha revisão** sends the
+  displayed sheet directly to the instructor, with explicit destination and
+  sent/error feedback. Instructor review can show the current plan alongside
+  the submitted sheet and select individual suggested exercises to append into
+  the next draft version; require at least one explicit selection and preserve
+  unselected suggestions outside that combined draft. Existing exercises remain;
+  the combined sheet remains subject to explicit approval.
 - **Instructor plan browsing:** Pending, own, and all-plan collections use a
   compact selectable list beside a focused reading pane on larger desktops,
   within the shared shell's wider content option. Phone and tablet show the

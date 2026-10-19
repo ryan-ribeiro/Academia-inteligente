@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -16,9 +17,26 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+
+
+class TrainingKnowledgeEvidence:
+    """Validated snapshot belongs to its client-owned message/proposal/version."""
+
+    citations: Mapped[list[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list,
+        server_default="[]",
+    )
+    knowledge_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="insufficient_evidence",
+        server_default="insufficient_evidence",
+    )
+    knowledge_limitations: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default="",
+    )
 
 
 class TrainingPlan(Base):
@@ -43,7 +61,7 @@ class TrainingPlan(Base):
     )
 
 
-class TrainingPlanVersion(Base):
+class TrainingPlanVersion(TrainingKnowledgeEvidence, Base):
     __tablename__ = "training_plan_version"
     __table_args__ = (
         Index(
@@ -82,6 +100,7 @@ class TrainingPlanVersion(Base):
     )
     responsible_name: Mapped[str | None] = mapped_column(String(301))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    submitted_for_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -130,7 +149,7 @@ class TrainingAiConversation(Base):
     )
 
 
-class TrainingAiMessage(Base):
+class TrainingAiMessage(TrainingKnowledgeEvidence, Base):
     """Sensitive client/assistant message retained only for the approved window."""
 
     __tablename__ = "training_ai_message"
@@ -164,7 +183,7 @@ class TrainingAiMessage(Base):
     )
 
 
-class TrainingAdaptationProposal(Base):
+class TrainingAdaptationProposal(TrainingKnowledgeEvidence, Base):
     __tablename__ = "training_adaptation_proposal"
     __table_args__ = (
         UniqueConstraint(

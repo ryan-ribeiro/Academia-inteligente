@@ -1,13 +1,14 @@
-import { Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, Stack, Tab, Tabs, Typography } from '@mui/material'
+import { Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, FormControlLabel, FormGroup, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { ApiRequestError } from './clients'
 import { EmptyState, LoadingState, PageHeader, StatusNotice } from './components/ui'
 import { TrainingPlanContent } from './components/training-plan-content'
+import { TrainingKnowledgeSources } from './components/training-knowledge-sources'
 import { TrainingDraftFields } from './training-draft-fields'
 import { InstructorShell } from './instructor-shell'
-import { approvePendingPlan, getPendingPlan, getPendingPlans, savePendingPlan, type PendingPlan, type ReviewContent } from './training-review'
+import { appendPendingToCurrent, approvePendingPlan, getPendingPlan, getPendingPlans, savePendingPlan, type PendingPlan, type ReviewContent } from './training-review'
 
 const sources = { ai: 'IA', instructor: 'Instrutor', adaptation: 'Adaptação aceita pelo cliente' }
 const date = (value: string) => new Date(value).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'medium', timeStyle: 'short' })
@@ -29,6 +30,7 @@ export function InstructorPendingPlansPage({ accessToken, onSignOut }: { accessT
   const [notice, setNotice] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [selectedPositions, setSelectedPositions] = useState<number[]>([])
   const dirty = Boolean(selected && draft && JSON.stringify(content(selected)) !== JSON.stringify(draft))
   const working = useRef(false)
   const generation = useRef(0)
@@ -76,7 +78,7 @@ export function InstructorPendingPlansPage({ accessToken, onSignOut }: { accessT
     working.current = true; setBusy(true); setError(null); setNotice(null)
     try {
       const latest = await getPendingPlan(accessToken, plan.id)
-      setSelected(latest); setDraft(content(latest)); setStale(false); setEditing(false)
+      setSelected(latest); setDraft(content(latest)); setStale(false); setEditing(false); setSelectedPositions([])
     } catch (reason) { failure(reason) }
     finally { working.current = false; setBusy(false) }
   }
@@ -98,6 +100,24 @@ export function InstructorPendingPlansPage({ accessToken, onSignOut }: { accessT
         requestAnimationFrame(() => listHeading.current?.focus())
       }
       setNotice(approve ? 'Plano aprovado e definido como treino atual.' : 'Rascunho salvo. O treino atual não foi alterado.')
+    } catch (reason) { failure(reason) }
+    finally { working.current = false; setBusy(false) }
+  }
+  async function append() {
+    if (!selected?.append_target || !draft || !selectedPositions.length || working.current || stale) return
+    working.current = true; setBusy(true); setError(null); setNotice(null)
+    try {
+      let latest = selected
+      if (dirty) {
+        latest = { ...latest, ...await savePendingPlan(accessToken, latest, draft) }
+        setSelected(latest); setDraft(content(latest))
+        setPlans((items) => items.map((item) => item.id === latest.id ? latest : item))
+      }
+      // A save response omits review-only metadata; retain the displayed target.
+      const merged = await appendPendingToCurrent(accessToken, latest, selectedPositions)
+      setSelected(merged); setDraft(content(merged)); setEditing(false); setSelectedPositions([])
+      setPlans((items) => items.map((item) => item.id === merged.id ? merged : item))
+      setNotice('Nova versão preparada com os exercícios selecionados. Confira a ficha combinada e aprove para ativá-la.')
     } catch (reason) { failure(reason) }
     finally { working.current = false; setBusy(false) }
   }
@@ -157,6 +177,10 @@ export function InstructorPendingPlansPage({ accessToken, onSignOut }: { accessT
             {stale && <Button disabled={busy} onClick={() => afterDiscard(() => void open(selected))}>Recarregar rascunho</Button>}
           </Stack>
           <Divider />
+          {(selected.source !== 'instructor' || Boolean(selected.citations?.length) || Boolean(selected.knowledge_limitations?.trim())) && <Stack spacing={1}>
+            <TrainingKnowledgeSources {...selected} knowledge_status={selected.knowledge_status ?? 'unavailable'} title="Fundamentação bibliográfica" />
+            <Typography variant="body2" color="text.secondary">A fundamentação exibida corresponde à versão salva. Confira sua aplicabilidade aos ajustes e às restrições do cliente antes de aprovar.</Typography>
+          </Stack>}
           <Tabs value={editing ? 'edit' : 'preview'} onChange={(_, value) => setEditing(value === 'edit')} aria-label="Modo de revisão" variant="fullWidth">
             <Tab id="aba-visualizar" aria-controls="painel-visualizar" value="preview" label="Visualizar treino" />
             <Tab id="aba-editar" aria-controls="painel-editar" value="edit" label="Editar rascunho" />
@@ -164,15 +188,23 @@ export function InstructorPendingPlansPage({ accessToken, onSignOut }: { accessT
           <Box role="tabpanel" id="painel-visualizar" aria-labelledby="aba-visualizar" hidden={editing}>{!editing && <TrainingPlanContent plan={draft} />}</Box>
           <Box role="tabpanel" id="painel-editar" aria-labelledby="aba-editar" hidden={!editing}>
             {editing && <Box component="fieldset" disabled={busy || stale} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
-              <TrainingDraftFields accessToken={accessToken} draft={draft} onChange={setDraft} />
+              <TrainingDraftFields accessToken={accessToken} draft={draft} onChange={(value) => { setDraft(value); setSelectedPositions([]) }} />
             </Box>}
           </Box>
+          {selected.append_target && <Stack spacing={2}>
+            <Typography component="h3" variant="h4">Ficha atual do cliente</Typography>
+            <TrainingPlanContent plan={selected.append_target} />
+            <Typography component="h3" variant="h4">Escolha os exercícios da IA para a nova versão</Typography>
+            <Typography variant="body2" color="text.secondary">A nova versão manterá os exercícios da ficha atual e incluirá apenas os exercícios marcados abaixo. Confira a ficha combinada antes de aprovar.</Typography>
+            <FormGroup aria-label="Exercícios sugeridos para acrescentar">{draft.items.map((item, index) => <FormControlLabel key={index} label={`Adicionar exercício ${index + 1}: ${item.exercise_name}`} control={<Checkbox disabled={busy || stale} checked={selectedPositions.includes(index + 1)} onChange={(_, checked) => setSelectedPositions((positions) => checked ? [...positions, index + 1] : positions.filter((position) => position !== index + 1))} />} />)}</FormGroup>
+            <Button disabled={busy || stale || selectedPositions.length === 0} variant="outlined" onClick={() => void append()}>Preparar nova versão com selecionados</Button>
+          </Stack>}
           <Box sx={{ position: { lg: 'sticky' }, bottom: 16, bgcolor: 'background.paper', borderTop: '1px solid', borderColor: 'divider', pt: 2 }}>
             <Stack spacing={1.5}>
               <Typography variant="body2" color="text.secondary">Aprovar torna esta versão o treino atual e registra você como instrutor responsável.</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ flexWrap: 'wrap', gap: 1 }}>
                 {(editing || dirty) && <Button disabled={busy || stale} variant="outlined" onClick={() => void submit(selected, false, draft)}>Salvar rascunho</Button>}
-                <Button disabled={busy || stale} variant="contained" onClick={() => void submit(selected, true, editing || dirty ? draft : undefined)}>{editing || dirty ? 'Aprovar alterações' : 'Aprovar'}</Button>
+                <Button disabled={busy || stale} variant="contained" onClick={() => void submit(selected, true, editing || dirty ? draft : undefined)}>{editing || dirty ? 'Aprovar alterações' : selected.append_target ? 'Aprovar como nova ficha' : 'Aprovar'}</Button>
                 <Button disabled={busy} onClick={() => afterDiscard(closeReview)}>Fechar revisão</Button>
               </Stack>
             </Stack>

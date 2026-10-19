@@ -226,13 +226,21 @@ def test_client_critical_path_is_scoped_and_preserves_history(
     plan_id = draft.body["plan_id"]
     version_number = draft.body["version_number"]
 
+    submitted = api.request(
+        "POST",
+        f"/training/drafts/{draft.body['id']}/submit",
+        {"expected_revision": draft.body["revision"]},
+    )
+    assert submitted.status_code == 200
+    assert submitted.body["submitted_for_review_at"] is not None
+
     identity.identity = AuthenticatedIdentity(
         "instructor", "instructor@example.test", ("instructor",)
     )
     approved = api.request(
         "POST",
         f"/training/plans/{plan_id}/versions/{version_number}/approve",
-        {"expected_revision": 1},
+        {"expected_revision": submitted.body["revision"]},
     )
     assert approved.status_code == 200
     assert approved.body["status"] == "current"
@@ -293,7 +301,7 @@ def test_client_critical_path_is_scoped_and_preserves_history(
 
     identity.identity = AuthenticatedIdentity("grace", "grace@example.test", ("client",))
     assert api.request("GET", "/training/current").body == {"plan": None}
-    assert api.request("GET", "/training/chat").body == {"messages": []}
+    assert api.request("GET", "/training/chat").body == {"messages": [], "draft": None}
     assert api.request("GET", "/clients").status_code == 403
 
     identity.identity = AuthenticatedIdentity("ada", "ada@example.test", ("client",))

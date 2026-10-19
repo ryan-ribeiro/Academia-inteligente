@@ -1,3 +1,5 @@
+import type { TrainingKnowledge } from './training-knowledge'
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export type CurrentTrainingItem = {
@@ -11,7 +13,7 @@ export type CurrentTrainingItem = {
   equipment_model_id?: string | null
 }
 
-export type CurrentTrainingPlan = {
+export type CurrentTrainingPlan = TrainingKnowledge & {
   plan_id: string
   version_number: number
   status: 'current'
@@ -23,8 +25,25 @@ export type CurrentTrainingPlan = {
 }
 
 export type TrainingPlanDraft = Omit<CurrentTrainingPlan, 'status'> & {
+  id: string
+  revision: number
+  submitted_for_review_at: string | null
+  preview?: string
   status: 'proposal'
   origin: 'ai' | 'instructor'
+}
+
+export async function submitTrainingDraft(accessToken: string, id: string, revision: number): Promise<TrainingPlanDraft> {
+  const response = await fetch(`${apiBaseUrl}/training/drafts/${encodeURIComponent(id)}/submit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_revision: revision }),
+  })
+  if (response.status === 401) throw new Error('Sua sessão expirou. Entre novamente para continuar.')
+  if (response.status === 403 || response.status === 404) throw new Error('Você não tem permissão para enviar este rascunho.')
+  if (response.status === 409) throw new Error('O rascunho mudou. Recarregue a página e confira a versão atual antes de enviar.')
+  if (!response.ok) throw new Error('Não foi possível enviar o treino para revisão. Tente novamente.')
+  return response.json() as Promise<TrainingPlanDraft>
 }
 
 export async function createInitialTrainingProposal(accessToken: string): Promise<TrainingPlanDraft> {

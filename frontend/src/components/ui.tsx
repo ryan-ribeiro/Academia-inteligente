@@ -46,7 +46,7 @@ export function StatusNotice({ severity, children }: { severity: 'error' | 'succ
   return <Alert severity={severity} variant="outlined">{children}</Alert>
 }
 
-export function ChatMessage({ role, children }: { role: 'user' | 'assistant'; children: ReactNode }) {
+export function ChatMessage({ role, children, footer }: { role: 'user' | 'assistant'; children: ReactNode; footer?: ReactNode }) {
   const isUser = role === 'user'
   return (
     <Box
@@ -60,6 +60,7 @@ export function ChatMessage({ role, children }: { role: 'user' | 'assistant'; ch
         borderRadius: isUser ? '20px 20px 4px 20px' : '4px 20px 20px 20px',
         color: 'text.primary',
         maxWidth: { xs: '96%', sm: '84%' },
+        minWidth: 0,
         overflowWrap: 'anywhere',
         px: 2,
         py: 1.5,
@@ -68,7 +69,10 @@ export function ChatMessage({ role, children }: { role: 'user' | 'assistant'; ch
       <Typography color="primary.main" variant="overline">
         {isUser ? 'Você' : 'Assistente'}
       </Typography>
-      <Typography component="p" sx={{ whiteSpace: 'pre-wrap' }}>{children}</Typography>
+      {typeof children === 'string'
+        ? <Typography component="p" sx={{ whiteSpace: 'pre-wrap' }}>{children}</Typography>
+        : <Box sx={{ minWidth: 0 }}>{children}</Box>}
+      {footer && <Box sx={{ mt: 1.5 }}>{footer}</Box>}
     </Box>
   )
 }

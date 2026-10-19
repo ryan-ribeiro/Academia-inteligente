@@ -77,6 +77,21 @@ def test_provider_payload_tokens_and_errors_are_not_logged(monkeypatch, caplog):
     )
 
 
+def test_training_focus_is_classified_without_logging_the_request(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error.ai")
+    provider = OllamaOnboardingProvider(OllamaConfig("http://ollama:11434", "local-writer", 120))
+    monkeypatch.setattr(
+        ai,
+        "urlopen",
+        lambda request, timeout: BytesIO(
+            ollama_response({"scope": "targeted", "muscle_groups": ["bíceps"], "goal": None})
+        ),
+    )
+    provider.analyze_training_request({"training_request": "private-client-request"})
+    assert events(caplog)[0]["operation"] == "training_generation"
+    assert "private-client-request" not in caplog.text and "bíceps" not in caplog.text
+
+
 def test_failed_turn_exposes_category_and_retry_count_not_exception_text(database_session, caplog):
     caplog.set_level(logging.INFO, logger="uvicorn.error.ai")
     service, _, scope, provider = interview(database_session)

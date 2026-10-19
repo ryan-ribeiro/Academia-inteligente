@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_database_session
-from app.integrations.ai import AiProviderError, AiTrainingGenerationResponse
+from app.integrations.ai import (
+    AiProviderError,
+    AiTrainingGenerationResponse,
+    AiTrainingPlanAssessment,
+    AiTrainingRequestFocus,
+)
 from app.main import create_app
 from app.modules.clients.models import Account, Client
 from app.modules.identity import router as identity_router
@@ -30,6 +35,11 @@ from app.modules.training.service import TrainingLifecycleService
 
 
 class FakeProvider:
+    focus = AiTrainingRequestFocus(scope="unspecified", muscle_groups=[], goal=None)
+
+    def analyze_training_request(self, context):
+        return self.focus
+
     def __init__(self, result: AiTrainingGenerationResponse | Exception) -> None:
         self.result = result
         self.contexts: list[dict[str, object]] = []
@@ -40,7 +50,29 @@ class FakeProvider:
         self.contexts.append(context)
         if isinstance(self.result, Exception):
             raise self.result
+        if "training_session" in context:
+            label = context["training_session"]["label"]
+            return self.result.model_copy(
+                update={
+                    "plan": {
+                        **self.result.plan,
+                        "items": [
+                            item
+                            for item in self.result.plan["items"]
+                            if item["exercise_name"].endswith(f"(Dia {label})")
+                        ],
+                    }
+                }
+            )
         return self.result
+
+    def assess_training(self, context):
+        return AiTrainingPlanAssessment(
+            sessions=[
+                {"label": label, "complete": True, "issues": []}
+                for label in context["training_schedule"]["session_labels"] or [""]
+            ]
+        )
 
 
 class RetryProvider(FakeProvider):

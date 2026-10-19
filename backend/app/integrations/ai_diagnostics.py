@@ -39,6 +39,12 @@ _REASONS = {
     "no_editable_draft",
     "unsupported_save_claim",
     "unclassified",
+    "invalid_training_focus",
+    "redundant_exercise_prescription",
+    "invalid_training_schema",
+    "invalid_training_citations",
+    "invalid_training_equipment",
+    "incomplete_training_plan",
 }
 _PATHS = {"none", "model", "direct", "confirmation", "cached"}
 _OPERATIONS = {"onboarding", "training_chat", "training_generation", "training_adaptation"}
@@ -119,6 +125,8 @@ def observe_provider_call(function):
                 "AiInterviewTurnResponse": "onboarding",
                 "AiTrainingChatResponse": "training_chat",
                 "AiTrainingGenerationResponse": "training_generation",
+                "AiTrainingRequestFocus": "training_generation",
+                "AiTrainingPlanAssessment": "training_generation",
                 "AiTrainingAdaptationResponse": "training_adaptation",
             }.get(response_type.__name__, "unknown"),
             "provider": {

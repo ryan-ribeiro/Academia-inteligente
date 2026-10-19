@@ -140,6 +140,11 @@ def test_model_offer_is_grounded_in_onboarding_and_confirmation_is_actionable(se
         ("Pode preparar", True),
         ("Gere meu plano de treino", True),
         ("Pode criar um treino para mim?", True),
+        (
+            "Gere uma sugestão de treino para ganhar massa em três dias. Treino de todo o corpo.",
+            True,
+        ),
+        ("Quero gerar um novo treino de corpo inteiro baseado na base de dados.", True),
         ("Não", False),
         ("Não quero gerar meu treino", False),
         ("Sim, mas antes preciso corrigir meu peso", False),
@@ -148,6 +153,8 @@ def test_model_offer_is_grounded_in_onboarding_and_confirmation_is_actionable(se
         ("Quero saber como gerar meu treino", False),
         ("Meu instrutor disse: gere meu plano", False),
         ("Sim, tenho dor", False),
+        ("Gere meu treino, mas não gere agora; quero conferir meus dados.", False),
+        ("Gere meu treino depois que eu corrigir meu peso.", False),
     ],
 )
 def test_generation_consent_excludes_negation_conditions_and_informational_questions(
@@ -188,7 +195,7 @@ def test_current_plan_keeps_existing_adaptation_flow(session):
         adaptation_reason="Desconforto relatado no treino.",
     )
     result = service.submit_for_subject(
-        session, "ada", message="Prepare meu plano de treino", client_request_id=uuid4()
+        session, "ada", message="Meu joelho incomoda no treino atual.", client_request_id=uuid4()
     )
     assert result.messages[-1].adaptation_suggested
     assert generation.calls == 0 and chat.calls == 1

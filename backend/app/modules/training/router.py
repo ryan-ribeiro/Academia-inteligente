@@ -40,6 +40,7 @@ from app.modules.training.models import (
     TrainingPlanItem,
     TrainingPlanVersion,
 )
+from app.modules.training.presentation import adaptation_preview, proposal_preview
 from app.modules.training.review_service import (
     pending_version,
     pending_versions,
@@ -49,8 +50,10 @@ from app.modules.training.review_service import (
 from app.modules.training.schema import (
     AdaptationClientDecision,
     AdaptationGenerationInput,
+    AppendToCurrentAction,
     ManualPlanCreate,
     ProposalUpdate,
+    TrainingKnowledgeResponse,
     VersionAction,
 )
 from app.modules.training.service import (
@@ -88,7 +91,7 @@ class TrainingChatMessageRequest(BaseModel):
         return value
 
 
-class TrainingChatMessageResponse(BaseModel):
+class TrainingChatMessageResponse(TrainingKnowledgeResponse):
     role: str
     content: str
     created_at: datetime
@@ -100,6 +103,7 @@ class TrainingChatMessageResponse(BaseModel):
 
 class TrainingChatResponse(BaseModel):
     messages: list[TrainingChatMessageResponse]
+    draft: dict[str, object] | None = None
 
 
 Client = Annotated[
@@ -107,8 +111,12 @@ Client = Annotated[
 ]
 
 
-def training_chat_response(state: TrainingChatState) -> TrainingChatResponse:
+def training_chat_response(
+    state: TrainingChatState, session: Session, subject: str
+) -> TrainingChatResponse:
+    drafts = current_service.find_drafts_for_subject(session, subject)
     return TrainingChatResponse(
+        draft=version_response(session, drafts[0]) if drafts else None,
         messages=[
             TrainingChatMessageResponse(
                 role=message.role,
@@ -118,15 +126,20 @@ def training_chat_response(state: TrainingChatState) -> TrainingChatResponse:
                 reply_to_client_request_id=message.reply_to_client_request_id,
                 adaptation_suggested=message.adaptation_suggested,
                 adaptation_reason=message.adaptation_reason,
+                citations=message.citations,
+                knowledge_status=message.knowledge_status,
+                knowledge_limitations=message.knowledge_limitations,
             )
             for message in state.messages
-        ]
+        ],
     )
 
 
 def adaptation_response(
     session: Session, proposal: TrainingAdaptationProposal
 ) -> dict[str, object]:
+    base = session.get(TrainingPlanVersion, proposal.base_version_id)
+    preview = adaptation_preview(TrainingAdaptationService._apply(session, base, proposal))
     base_items = session.scalars(
         select(TrainingPlanItem)
         .where(TrainingPlanItem.version_id == proposal.base_version_id)
@@ -160,6 +173,10 @@ def adaptation_response(
         "source_client_request_id": str(proposal.source_client_request_id),
         "reason": proposal.reason,
         "explanation": proposal.explanation,
+        "preview": preview,
+        "citations": proposal.citations,
+        "knowledge_status": proposal.knowledge_status,
+        "knowledge_limitations": proposal.knowledge_limitations,
         "client_reviewed_at": (
             proposal.client_reviewed_at.isoformat() if proposal.client_reviewed_at else None
         ),
@@ -217,6 +234,7 @@ def adaptation_error(error: Exception) -> HTTPException:
 
 def version_response(session: Session, version: TrainingPlanVersion) -> dict[str, object]:
     return {
+        "id": str(version.id),
         "plan_id": str(version.plan_id),
         "version_number": version.version_number,
         "status": version.status,
@@ -228,6 +246,13 @@ def version_response(session: Session, version: TrainingPlanVersion) -> dict[str
         "updated_at": version.updated_at.isoformat(),
         "approved_at": version.approved_at.isoformat() if version.approved_at else None,
         "revision": version.revision,
+        "submitted_for_review_at": (
+            version.submitted_for_review_at.isoformat() if version.submitted_for_review_at else None
+        ),
+        "preview": proposal_preview(session, version) if version.status == "proposal" else None,
+        "citations": version.citations,
+        "knowledge_status": version.knowledge_status,
+        "knowledge_limitations": version.knowledge_limitations,
         "items": [
             {
                 "exercise_name": item.exercise_name,
@@ -292,6 +317,32 @@ def get_pending_plan(
         raise lifecycle_error(error) from None
 
 
+@router.post("/pending/{version_id}/append-to-current")
+def append_pending_to_current(
+    version_id: UUID,
+    payload: AppendToCurrentAction,
+    session: DatabaseSession,
+    instructor: Instructor,
+) -> dict[str, object]:
+    try:
+        version = service.append_to_current(
+            session,
+            version_id=version_id,
+            expected_revision=payload.expected_revision,
+            current_version_id=payload.current_version_id,
+            expected_current_revision=payload.expected_current_revision,
+            selected_positions=payload.selected_positions,
+        )
+        return dict(version_response(session, version), **review_metadata(session, version))
+    except (
+        TrainingVersionNotFoundError,
+        ConcurrentTrainingUpdateError,
+        InvalidTrainingTransitionError,
+        InvalidTrainingContentError,
+    ) as error:
+        raise lifecycle_error(error) from None
+
+
 @router.get("/current")
 def get_current_plan(
     session: DatabaseSession,
@@ -318,11 +369,36 @@ def get_own_training_drafts(
     ]
 
 
+@router.post("/drafts/{version_id}/submit")
+def submit_training_draft(
+    version_id: UUID, payload: VersionAction, session: DatabaseSession, client_user: Client
+) -> dict[str, object]:
+    """Request instructor review of only the caller's unchanged draft."""
+    try:
+        version = service.submit_for_review(
+            session,
+            subject=client_user.subject,
+            version_id=version_id,
+            expected_revision=payload.expected_revision,
+        )
+        return version_response(session, version)
+    except (
+        TrainingVersionNotFoundError,
+        ConcurrentTrainingUpdateError,
+        InvalidTrainingTransitionError,
+    ) as error:
+        raise lifecycle_error(error) from None
+
+
 @router.get("/chat", response_model=TrainingChatResponse)
 def get_training_chat(session: DatabaseSession, client_user: Client) -> TrainingChatResponse:
     """Return raw training chat only to the client who owns it."""
     try:
-        return training_chat_response(chat_service.state_for_subject(session, client_user.subject))
+        return training_chat_response(
+            chat_service.state_for_subject(session, client_user.subject),
+            session,
+            client_user.subject,
+        )
     except TrainingChatNotFoundError:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Authenticated client not found"
@@ -343,7 +419,9 @@ def send_training_chat_message(
                 client_user.subject,
                 message=payload.message,
                 client_request_id=payload.client_request_id,
-            )
+            ),
+            session,
+            client_user.subject,
         )
     except TrainingChatNotFoundError:
         raise HTTPException(
@@ -389,6 +467,8 @@ def generate_adaptation(
                 reason=payload.reason,
             ),
         )
+    except ActiveTrainingProposalExistsError as error:
+        raise lifecycle_error(error) from None
     except (AdaptationNotFoundError, AdaptationStateError, AdaptationUnavailableError) as error:
         raise adaptation_error(error) from None
 

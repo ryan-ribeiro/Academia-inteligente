@@ -480,6 +480,51 @@ Generate initial guidance/a training plan using the information provided during 
 - [ ] **CA-15.4:** relevant health data influences the AI proposal. Under the approved Task 14 interpretation of DEC-07, it does not automatically block proposal generation; mandatory instructor review is the safety gate before approval or activation.
 - [ ] **CA-15.5:** the plan is created based on each client's onboarding data.
 - [ ] **CA-15.6:** AI generation creates a `proposal` only when the client has no existing `proposal`; it must not create a second draft for that client.
+- [ ] **CA-15.7:** initial generation retrieves at most six relevant, reviewed,
+  commercially reusable knowledge passages. Persisted proposals carry backend-
+  validated `citations`, `knowledge_status`, and `knowledge_limitations`; an
+  invented or unretrieved reference prevents persistence.
+- [ ] **CA-15.8:** the instructor review displays the proposal's bibliographic
+  grounding and limitations. Sources never bypass client restrictions or the
+  exclusive `instructor` approval and activation gate.
+- [ ] **CA-15.9:** generated client previews show `Treino A — [division name]`,
+  the student's stated goal in plain Brazilian Portuguese, the unapproved
+  instructor-review status, and an ordered table of exercise, sets, repetitions
+  or duration, individual load guidance, and rest in seconds. The response
+  retains `citations`, `knowledge_status`, and `knowledge_limitations`.
+- [ ] **CA-15.10:** an initial AI draft enters professional review only after
+  its owner explicitly clicks to submit the displayed revision. Submission
+  never approves or activates it. Unsatisfied clients can request changes;
+  a subsequent AI edit requires a fresh submission. Instructor-authored drafts
+  and explicitly client-accepted adaptations retain their existing review flow.
+- [ ] **CA-15.11:** exercise requests, including questions such as which exercises
+  to use for biceps hypertrophy, identify the requested muscle groups and goal
+  through the configured AI adapter before retrieval. A targeted request returns
+  a structured client-specific sheet for those groups; it is not widened into
+  a full-body routine. Explicit full-body requests retain their broader scope.
+- [ ] **CA-15.12:** AI sheets and AI draft edits consolidate competing prescriptions
+  of the same exercise instead of adding a row per source, repetition range, load,
+  or equipment alternative. Selection prioritizes evidence quality, relevant
+  outcomes and applicability to the requested goal and client constraints, not
+  retrieval order or citation count. Complementary exercises may remain; evidence
+  without comparative results must not be described as proving superiority.
+  Repeated exercises with different prescriptions require explicitly identified
+  different days in the displayed sheet. A sheet without day assignments is one
+  session. Redundant output is corrected once against the same request/evidence;
+  unresolved duplicates fail without changing the saved draft or approved plan.
+- [ ] **CA-15.13:** following the owner's 2026-10-19 clarification, a full-body
+  request for three days produces three complete sheets, A, B and C. Every
+  sheet independently covers the requested full-body scope with recognizable,
+  complementary exercises adapted to the client's restrictions. Three days
+  must not become three exercises or a single two-exercise sheet. No fixed
+  universal exercise count or claim of optimal individual prescription is
+  implied. Requested sessions and per-session completeness are checked before
+  persistence; incomplete output receives one correction with the same request
+  and evidence. Persistent gaps or review-provider failure preserve the saved
+  draft and approved plan. Client and instructor previews show each day's own
+  ordered exercise table; repeating an exercise in explicitly different days
+  is allowed, including the same prescription. Instructor approval remains
+  necessary.
 
 **Consolidation note:** Apply RN-12 through RN-19 and RN-29 through RN-31. DEC-07 resolves the current proposal/review flow: AI may create only a structured proposal, and an instructor must review it before approval or activation.
 
@@ -523,6 +568,99 @@ Provide a chat where the client can discuss their training and provide additiona
 - [ ] **CA-18.3:** one client's messages do not appear in another client's conversation.
 - [ ] **CA-18.4:** provider unavailability returns a controlled error and does not corrupt the training plan.
 - [ ] **CA-18.5:** when the client has a `proposal`, the AI may edit only that sole draft; its authority does not depend on whether AI or an instructor created the draft.
+- [ ] **CA-18.6:** every training-chat turn and AI draft replacement uses the
+  shared retrieval and reference-validation contract below; assistant messages
+  persist their canonical citations and show a Portuguese "Fontes" section.
+- [ ] **CA-18.7:** unavailable retrieval, missing relevant evidence, and expired
+  source reviews produce explicit limitations. The assistant must not fabricate
+  references, infer diagnoses, or present unsupported clinical conclusions.
+- [ ] **CA-18.8:** a direct request for exercises generates the structured sheet
+  in the conversation, including when a current plan exists. The displayed
+  **Enviar rascunho para minha revisão** action sends that exact draft revision
+  directly to instructor review; it does not merely start another client-review
+  generation step. The client receives sent, pending and failure feedback.
+
+**Approved RAG contract (RF-15/RF-18/RF-19):** PostgreSQL with `pgvector`
+stores a versioned bibliographic catalogue, reviewed passages, and 1024-
+dimensional dense embeddings from BGE-M3 through a separate Ollama embedding
+adapter. The existing writing-LLM adapters, provider selection, and model
+configuration remain unchanged except for the approved local selection below.
+
+The owner approved replacing the local `qwen3:1.7b` writing-model selection
+with the already installed `qwen3:4b` on 2026-10-19 after training-generation
+diagnostics. This local configuration decision preserves the writing adapters,
+provider selection, embedding model, and instructor-review gates.
+
+Hybrid retrieval combines PostgreSQL full-text
+search and vector cosine similarity with bounded rank fusion and relevance
+filtering, returning zero to six passages. Shared bibliographic sources contain
+no client records. Any client-scoped passage must match the authenticated
+client UUID before either search and ranking; conversation/onboarding context
+remains limited to that client's existing authorized scope. No client queries,
+health facts, or chat transcripts enter the shared corpus or its logs.
+
+Only sources explicitly marked reviewed, commercially reusable, with an
+allowed OGL-3.0, CC-BY-4.0, or CC-BY-SA-4.0 license and a valid review deadline
+can contribute passages. Pending authorization, NC licenses, excluded content,
+and expired reviews are filtered before retrieval. Publication age alone does
+not establish obsolescence: the review deadline determines freshness. Expired
+passages cannot support a response even when they would otherwise match.
+
+Retrieved passages are untrusted reference data, never instructions. The
+writer returns `citations` as retrieved passage IDs and a `knowledge_status`
+claim. The backend rejects unknown IDs and invalid status claims and fills
+the canonical citation metadata from the retrieved records, never from
+writer-supplied author/title/URL values. Empty citations cannot become
+`supported`. The public/persisted contract contains canonical `citations`,
+`knowledge_status` (`supported`, `insufficient_evidence`, `outdated`, or
+`unavailable`), and a Portuguese `knowledge_limitations` string. Status and
+limitations must conservatively reflect retrieval quality; a matching source
+does not establish a diagnosis or applicability to every client. Evidence
+snapshots accompany proposals and their adaptation-to-review drafts without
+exposing raw client chat to instructors. Manual instructor content changes
+clear any AI citations whose applicability has not been revalidated.
+
+`backend/app/modules/knowledge/catalog.json` is the packaged seed source.
+Every normal `docker compose up --build` runs schema migrations followed by
+an idempotent catalogue/chunk/embedding bootstrap before the backend starts.
+The dedicated embedding model is downloaded into persistent Ollama storage.
+Both fresh databases and existing volumes receive catalogue updates; identical
+passages retain their embeddings, changed content is re-embedded, and revoked
+or removed passages stop being retrievable. A failed bootstrap fails startup
+visibly instead of announcing a ready backend with missing seed knowledge.
+After startup an embedding/search outage returns `unavailable` with a clear
+limitation and does not corrupt plans or disable independent features.
+
+**Initial source review:** all fourteen submitted candidates are retained as
+bibliographic metadata. Only selected text from the nine sources below is
+indexed; this is a technical review of content and reuse conditions dated
+2026-10-13, not clinical approval of any individual plan. The pilot stores
+selected original English NHS excerpts and translated research/textbook
+summaries with attribution, capture date, adaptation notices, and license
+links. Images, video, logos, and third-party materials are not ingested.
+
+| Indexed source | Reuse and evidence boundary |
+| --- | --- |
+| [NHS strength](https://www.nhs.uk/live-well/exercise/strength-exercises/), [flexibility](https://www.nhs.uk/live-well/exercise/flexibility-exercises/), [balance](https://www.nhs.uk/live-well/exercise/balance-exercises/) | OGL-3.0 original text snapshots with attribution/capture date; [NHS exceptions and attribution terms](https://www.nhs.uk/our-policies/terms-and-conditions/) apply. Publisher review deadlines remain 2027-02-28, 2026-11-20, and 2026-11-07 respectively. General guidance, not individual prescriptions. |
+| [Biga et al., Anatomy & Physiology](https://open.oregonstate.education/anatomy/) | [CC BY-SA 4.0](https://open.oregonstate.education/anatomy/back-matter/creative-commons-license/); translated section 10.6 summaries retain the same license. Foundations, not a clinical guideline. |
+| [Rojas-Jaramillo et al., 2024](https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2024.1477796/full) | CC BY; deep-squat review excluded populations with knee pathology. No extrapolation to reported knee pain or injury. |
+| [Verville et al., 2023](https://link.springer.com/article/10.1007/s10926-023-10124-4) | CC BY 4.0; chronic primary low-back-pain population and modality-specific uncertainty must remain explicit. |
+| [Pavlova et al., 2023](https://bjsm.bmj.com/content/57/20/1327) | [CC BY 4.0 reuse verified](https://pmc.ncbi.nlm.nih.gov/articles/PMC10579176/); dose reporting is incomplete and aggregate associations do not determine safe individual loads. |
+| [Wu et al., 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12011739/) | [CC BY at publisher](https://www.frontiersin.org/journals/bioengineering-and-biotechnology/articles/10.3389/fbioe.2025.1560597/full); clinical shoulder population and heterogeneous exercise outcomes. |
+| [Lin et al., 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12234485/) | [CC BY at publisher](https://www.frontiersin.org/journals/rehabilitation-sciences/articles/10.3389/fresc.2025.1596966/full); low-certainty knee-osteoarthritis evidence, not a diagnosis from a complaint. |
+
+The Brazilian Ministry of Health guide, Open Textbook of Exercise Physiology,
+and BMJ knee-exercise review remain metadata-only because their supplied
+licenses are NC. WHO and JOSPT guidelines remain metadata-only pending reuse
+authorization. Their content is never embedded or supplied to a writing LLM.
+Research/textbook selections have an annual technical review deadline of
+2027-10-13. Any future ingestion requires the same source/license checks.
+
+Focused verification covers grounding/reference validation in all three AI
+flows, real PostgreSQL `vector(1024)` and hybrid-search behavior, idempotent
+bootstrap, client segregation, expiration and provider failures, plus source
+display in chat and instructor review. Tests use fake embedding/writing
+adapters; they do not rely on live external AI providers.
 
 **Approved implementation policy (DEC-08/DEC-18, Task 16):** training chat is
 a separate client-owned persisted conversation. Responses are conversational
@@ -551,6 +689,18 @@ concurrency protection. The AI never edits an approved, current, superseded,
 or historical version, and never approves or activates a plan; instructor
 review remains mandatory.
 
+**Client submission amendment (RF-15/RF-18, 2026-10-17):** generation and
+submission for instructor review are separate. A generated initial draft is
+visible to its client before submission, but is excluded from instructor
+pending lists, draft details, edits, and approval. Only the owning active
+client can submit its current revision; stale or cross-client requests fail.
+AI changes clear submission and increment the revision. Instructor changes
+to submitted content preserve review readiness. The single-proposal constraint
+still includes unsubmitted drafts. Existing initial AI drafts without evidence
+of client confirmation also require submission; instructor drafts and retained
+client-confirmed adaptations remain reviewable. Instructor approval remains the
+sole activation gate, and RAG evidence is retained through submission.
+
 **Confirmation-loop correction (RF-15/RF-18):** when no current plan exists,
 an explicit initial-plan request or a short affirmative reply to the immediately
 preceding assistant's single initial-plan confirmation question invokes the
@@ -561,6 +711,49 @@ create duplicate drafts. It reports success only after validated persistence,
 with a pointer to Meu treino and the mandatory instructor-review boundary.
 Negative, conditional, unrelated, or ambiguous replies do not authorize generation.
 Current-plan adaptations retain the RF-19 confirmation and review flow.
+
+**Muscle-targeted exercise request amendment (RF-15/RF-18, 2026-10-18):**
+the owner clarified that a request for exercises is not necessarily a complete
+replacement routine or a pathology adaptation. The AI identifies the muscles
+and goal stated in the request, retrieves evidence for that scope, and generates
+the client-specific structured sheet immediately. Questions asking which
+exercises to perform count as requests. Completed own onboarding and equipment
+constraints remain applicable. A new explicit focus can revise the sole draft;
+identical repeated requests reuse it. Only the owner's subsequent submit click
+sends the displayed revision to the instructor. No second generation or client
+acceptance step is inserted after that click. This explicit-request flow is
+distinct from unsolicited RF-19 adaptation offers described below.
+
+The writing context retains passage IDs, source title, section, text and
+limitations; full canonical attribution and licensing metadata remains on the
+backend for citation validation and display. Ollama training requests use an
+explicit 16,384-token context so reviewed passages and client restrictions do
+not displace the requested muscle focus under its smaller server default.
+The configured provider and model are unchanged.
+
+**Exercise-selection clarification (RF-15/RF-18, 2026-10-18):** retrieved
+passages are candidate evidence, not a list of prescriptions to concatenate.
+The writer selects the best-supported applicable alternative(s), consolidating
+synonymous/redundant movements and retaining only useful complementary choices.
+The existing flat item contract displays explicitly planned day assignments
+using an `exercise_name` suffix such as `(Dia A)` or `(Dia B)`; a frequency in the
+plan title alone does not assign exercises to days. The backend rejects repeated
+normalized exercise names in the same or unspecified day, even when prescription
+fields differ, and identical prescriptions repeated across days. Semantic
+equivalence and evidence comparison remain the writer's responsibility; text
+normalization is not a semantic or clinical ranking. Correction reuses retrieved
+evidence and revalidates final citations, without adding providers or changing
+approved/historical plans.
+
+The live configured-writer check also exposed expansion of a biceps request
+into triceps/shoulders during focus analysis. Before retrieval, `muscle_groups`
+must retain muscle/region terms literally present in the request (case, accents
+and whitespace are normalized for comparison). Do not replace the client's
+terms with anatomical synonyms at this extraction boundary; semantic retrieval
+can still match those terms. Invalid focus receives one correction against the
+original request; persistent invalid focus fails before retrieval or plan
+writing. This validation prevents adding absent labels, but does not infer
+negation or anatomically classify arbitrary text.
 
 **Approved interaction amendment (Task 17):** the assistant may proactively
 recognize from the authenticated client's own training conversation that a
@@ -582,6 +775,10 @@ Adapt the plan when the client reports through chat that pain, a limitation, or 
 - [ ] **CA-19.2:** a change approved through the flow results in a new current version.
 - [ ] **CA-19.3:** unrelated parts are not improperly removed.
 - [ ] **CA-19.4:** the modified plan remains after reauthentication.
+- [ ] **CA-19.5:** adaptation generation follows the shared RAG contract and
+  persists validated evidence with the retained proposal and instructor draft;
+  missing, expired, or unavailable evidence is explicitly qualified. Client
+  confirmation requests review only and never approves or activates a plan.
 
 **Consolidation note:** The text requires an approved change but does not detail who approves it or the proposal states. Define this flow under DEC-07; preserve the approved plan as required by RN-16 and RN-17.
 
@@ -1175,6 +1372,20 @@ approving Employee becomes responsible, and the approval timestamp is recorded.
 The first successful stale-state-sensitive write wins; later stale writes return
 a conflict requiring reload.
 
+For a submitted standalone exercise sheet, instructor review also offers
+appending selected exercises to the same client's current plan. The instructor sees
+both the suggestion and the current plan before choosing. This reuses the sole
+draft as the next version of the current plan, preserves current exercises and
+their order, and appends only the explicitly selected generated exercises in
+their original order. Empty, duplicate and invalid selections are rejected.
+Preparation
+does not activate the draft; explicit instructor approval activates the combined
+version and preserves immutable history and responsibility. Both the displayed
+draft revision and current-version ID/revision must match. Cross-client, stale,
+unsubmitted and already-combined/adaptation drafts cannot use this action.
+Manual combination invalidates unvalidated whole-plan citation applicability.
+This is **EXT-CA-INST-02.9**, approved by the owner's 2026-10-18 clarification.
+
 The client current-plan view displays the responsible instructor's current
 first name and surname and the approval date. Historical versions retain their
 original immutable instructor attribution even if that employee is later
@@ -1609,7 +1820,7 @@ the active implementation architecture.
 | Area | Approved implementation choice |
 | --- | --- |
 | Architecture/backend | Python 3.13.15 modular monolith; FastAPI 0.141.1. NestJS has no MVP responsibility and requires a future explicit decision. |
-| Persistence | PostgreSQL; SQLAlchemy 2.x synchronous access; Alembic migrations; psycopg 3. |
+| Persistence | PostgreSQL 18.6 with pgvector 0.8.1 for the approved RF-15/RF-18/RF-19 RAG; SQLAlchemy 2.x synchronous access; Alembic migrations; psycopg 3. |
 | Frontend | React 19.3.0, TypeScript 5.9.3, Vite 8.3.0, MUI 9.0.0; Node.js 24.21.0 LTS. |
 | Authentication | Keycloak 26.6.3 through OIDC; identity model in section 2.2. |
 | API | REST + JSON + OpenAPI. |

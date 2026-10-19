@@ -61,7 +61,7 @@ test('shows an own draft as pending instructor approval, not as the current plan
 
   render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
 
-  expect(await screen.findByText('Rascunho de força')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Treino A — Rascunho de força' })).toBeInTheDocument()
   expect(screen.getByText('Rascunho — ainda não aprovado')).toBeInTheDocument()
   expect(screen.getByText(/Seu instrutor precisa revisar, aprovar e ativar/)).toBeInTheDocument()
 })
@@ -88,7 +88,7 @@ test('generates and displays a single initial AI draft for the client', async ()
   render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
   fireEvent.click(await screen.findByRole('button', { name: 'Gerar rascunho inicial com IA' }))
 
-  expect(await screen.findByText('Rascunho inicial de força')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Treino A — Rascunho inicial de força' })).toBeInTheDocument()
   expect(fetchMock.mock.calls[2][0]).toBe('http://localhost:8000/training/initial-proposal')
   expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST', headers: { Authorization: 'Bearer access-token' } })
   expect(screen.queryByRole('button', { name: 'Gerar rascunho inicial com IA' })).not.toBeInTheDocument()
@@ -101,4 +101,43 @@ test('renders a controlled error when the current-plan query fails', async () =>
 
   expect(await screen.findByText('Não foi possível carregar seu treino. Tente novamente.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
+})
+
+test('shows a structured draft and only sends the displayed revision after client confirmation', async () => {
+  const draft = {
+    ...currentPlan, id: 'draft-1', revision: 3, status: 'proposal', origin: 'ai',
+    submitted_for_review_at: null, name: 'Corpo inteiro',
+    citations: [], knowledge_status: 'unavailable', knowledge_limitations: 'Consulta às fontes indisponível.',
+  }
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [draft] })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ...draft, revision: 4, submitted_for_review_at: '2026-10-17T20:00:00Z' }) })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  expect(await screen.findByRole('heading', { name: 'Treino A — Corpo inteiro' })).toBeInTheDocument()
+  expect(screen.getByText('Objetivo: Ganhar força com consistência')).toBeInTheDocument()
+  expect(screen.getByRole('table', { name: 'Ficha de exercícios' })).toBeInTheDocument()
+  for (const column of ['Ordem', 'Exercício', 'Séries', 'Repetições ou duração', 'Carga', 'Descanso']) expect(screen.getByRole('columnheader', { name: column })).toBeInTheDocument()
+  expect(screen.getByText('90 s')).toBeInTheDocument()
+  expect(screen.getByText('Consulta às fontes indisponível.')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar rascunho para minha revisão' }))
+  expect(await screen.findByText(/Enviado para revisão do instrutor/)).toBeInTheDocument()
+  expect(fetchMock.mock.calls[2][0]).toBe('http://localhost:8000/training/drafts/draft-1/submit')
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ expected_revision: 3 })
+  expect(screen.queryByRole('button', { name: 'Enviar rascunho para minha revisão' })).not.toBeInTheDocument()
+})
+
+test('keeps an unsubmitted draft visible and explains a stale submission', async () => {
+  const draft = { ...currentPlan, id: 'draft-1', revision: 1, status: 'proposal', origin: 'ai', submitted_for_review_at: null }
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [draft] })
+    .mockResolvedValueOnce({ ok: false, status: 409 }))
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Enviar rascunho para minha revisão' }))
+  expect(await screen.findByText(/O rascunho mudou/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Enviar rascunho para minha revisão' })).toBeEnabled()
+  expect(screen.queryByText(/Enviado para revisão do instrutor/)).not.toBeInTheDocument()
 })

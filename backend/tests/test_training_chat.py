@@ -596,6 +596,9 @@ def test_unrequested_draft_update_is_blocked_and_success_is_confirmed_from_persi
     )
     assert draft.revision == 2 and draft.status == "proposal"
     assert "ainda dependem da aprovação" in result.messages[-1].content
+    assert "Enviar rascunho para minha revisão" in result.messages[-1].content
+    assert "Treino A — Novo rascunho" in result.messages[-1].content
+    assert "| 1 | Agachamento | 3 | 8 | Carga confortável | 90 s |" in result.messages[-1].content
     assert "aprovei" not in result.messages[-1].content
 
 

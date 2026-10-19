@@ -169,6 +169,52 @@ test('client landing lookup failure offers retry instead of remaining in prepara
   await waitFor(() => expect(window.location.pathname).toBe('/feed'))
 })
 
+test.each(['success', 'unavailable'] as const)('refreshing a client token preserves a pending chat through a %s response', async (outcome) => {
+  vi.useFakeTimers()
+  session(['client'])
+  window.history.replaceState({}, '', '/assistente')
+  let finishMessage!: (value: unknown) => void
+  let finishOnboarding!: (value: unknown) => void
+  let onboardingCalls = 0
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/onboarding/me')) {
+      onboardingCalls += 1
+      return onboardingCalls === 1 ? response({ status: 'completed' }) : new Promise((resolve) => { finishOnboarding = resolve })
+    }
+    if (url.endsWith('/training/chat/messages')) return new Promise((resolve) => { finishMessage = resolve })
+    if (url.endsWith('/training/chat')) return response({ messages: [] })
+    if (url.endsWith('/training/current')) return response({ plan: null })
+    if (url.endsWith('/training/adaptations')) return response([])
+    if (url.endsWith('/token')) return response({ access_token: 'renewed', refresh_token: 'rotated', expires_in: 300 })
+    if (url.endsWith('/identity/me')) return response({ roles: ['client'] })
+    return api(url)
+  }))
+  await act(async () => { render(<App />) })
+  fireEvent.change(screen.getByLabelText('Escreva sua pergunta'), { target: { value: 'Gere um treino para bíceps.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+  expect(screen.getByText('Preparando sua resposta…')).toBeInTheDocument()
+  vi.setSystemTime(Date.now() + 241_000)
+  await act(async () => { window.dispatchEvent(new Event('pageshow')) })
+  expect(onboardingCalls).toBe(2)
+  expect(screen.getByText('Preparando sua resposta…')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Enviando…' })).toBeDisabled()
+  expect(screen.getByLabelText('Escreva sua pergunta')).toHaveValue('Gere um treino para bíceps.')
+  await act(async () => { finishOnboarding(response({ status: 'completed' })) })
+  await act(async () => { finishMessage(outcome === 'unavailable' ? { ok: false, status: 503 } : response({ messages: [
+    { role: 'user', content: 'Gere um treino para bíceps.', created_at: '2026-10-18T20:00:00Z' },
+    { role: 'assistant', content: 'Seu rascunho está pronto para conferir.', created_at: '2026-10-18T20:00:01Z' },
+  ] })) })
+  if (outcome === 'success') {
+    expect(screen.getByText('Seu rascunho está pronto para conferir.')).toBeInTheDocument()
+  } else {
+    expect(screen.getByText('O assistente de treino está indisponível no momento. Tente novamente.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Escreva sua pergunta')).toHaveValue('Gere um treino para bíceps.')
+  }
+  expect(screen.queryByText('Preparando sua resposta…')).not.toBeInTheDocument()
+  expect(replaceLocation).not.toHaveBeenCalled()
+})
+
 test.each([
   [['admin'], '/admin'], [['instructor'], '/instrutor/feed'],
   [['client', 'instructor'], '/instrutor/feed'], [['admin', 'instructor'], '/admin'],

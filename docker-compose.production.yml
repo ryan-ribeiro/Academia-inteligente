@@ -35,6 +35,8 @@ x-backend: &backend
     AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-10}
     AI_RECENT_MESSAGE_LIMIT: ${AI_RECENT_MESSAGE_LIMIT:-6}
     AI_TRAINING_CHAT_SUMMARY_LIMIT: ${AI_TRAINING_CHAT_SUMMARY_LIMIT:-2000}
+    KNOWLEDGE_OLLAMA_BASE_URL: http://knowledge-ollama:11434
+    KNOWLEDGE_EMBEDDING_TIMEOUT_SECONDS: ${KNOWLEDGE_EMBEDDING_TIMEOUT_SECONDS:-120}
     OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
     OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
     OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-120}
@@ -87,6 +89,7 @@ services:
     <<: *backend
     depends_on:
       postgres: {condition: service_healthy}
+      backend-init: {condition: service_completed_successfully}
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 20s
@@ -101,8 +104,57 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
 
+  backend-init:
+    <<: *backend
+    restart: 'no'
+    command: [python, -m, app.modules.knowledge.startup]
+    depends_on:
+      postgres: {condition: service_healthy}
+      knowledge-extension: {condition: service_completed_successfully}
+      knowledge-model: {condition: service_completed_successfully}
+
+  knowledge-extension:
+    build:
+      context: ./database
+    entrypoint: [/bin/sh, /usr/local/bin/ensure-knowledge-extension.sh]
+    restart: 'no'
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGDATABASE: academia
+    secrets: [postgres_password]
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  knowledge-ollama:
+    image: ollama/ollama:${OLLAMA_DOCKER_TAG:-0.34.1}
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    expose: ['11434']
+    volumes: [knowledge_models:/root/.ollama]
+    networks: [application, outbound]
+    healthcheck:
+      test: [CMD-SHELL, 'OLLAMA_HOST=http://127.0.0.1:11434 ollama list >/dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  knowledge-model:
+    image: ollama/ollama:${OLLAMA_DOCKER_TAG:-0.34.1}
+    entrypoint: [/bin/ollama]
+    command: [pull, bge-m3]
+    environment:
+      OLLAMA_HOST: http://knowledge-ollama:11434
+    networks: [application]
+    depends_on:
+      knowledge-ollama: {condition: service_healthy}
+    restart: 'no'
+
   postgres:
-    image: postgres:18.6-bookworm
+    build:
+      context: ./database
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -198,6 +250,7 @@ volumes:
   production_postgres: {}
   biometrics_data: {}
   ollama_data: {}
+  knowledge_models: {}
 secrets:
   database_url: {file: '${PRODUCTION_STATE_DIR:-./.deployment}/secrets/database_url'}
   provisioning_secret: {file: '${PRODUCTION_STATE_DIR:-./.deployment}/secrets/provisioning_secret'}

@@ -6,7 +6,7 @@ import json
 import os
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -23,6 +23,7 @@ from app.integrations.ai import (
 from app.integrations.ai_diagnostics import observe_turn, record_retry, record_turn
 from app.modules.clients.models import Account, Client
 from app.modules.equipment.service import EquipmentService
+from app.modules.knowledge.service import KnowledgeCitationError, KnowledgeResult, KnowledgeService
 from app.modules.onboarding.draft_service import OnboardingDraftService
 from app.modules.onboarding.models import Onboarding
 from app.modules.training.generation_service import (
@@ -38,7 +39,12 @@ from app.modules.training.models import (
     TrainingPlanItem,
     TrainingPlanVersion,
 )
+from app.modules.training.presentation import proposal_preview
 from app.modules.training.schema import TrainingPlanVersionInput
+from app.modules.training.selection import (
+    RedundantTrainingExerciseError,
+    request_selected_training,
+)
 from app.modules.training.service import (
     ConcurrentTrainingUpdateError,
     ImmutableTrainingVersionError,
@@ -68,6 +74,9 @@ class TrainingChatMessage:
     reply_to_client_request_id: UUID | None
     adaptation_suggested: bool
     adaptation_reason: str | None
+    citations: list[dict] = field(default_factory=list)
+    knowledge_status: str = "insufficient_evidence"
+    knowledge_limitations: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,9 +92,11 @@ class TrainingChatService:
         provider: TrainingChatProvider | None = None,
         *,
         generation_service: InitialTrainingGenerationService | None = None,
+        knowledge_service: KnowledgeService | None = None,
     ) -> None:
         self._provider = provider or training_chat_provider_from_environment()
         self._generation = generation_service or InitialTrainingGenerationService()
+        self._knowledge = knowledge_service or KnowledgeService()
         self._lifecycle = TrainingLifecycleService()
         self._recent_message_limit = int(os.environ.get("AI_RECENT_MESSAGE_LIMIT", "6"))
         self._summary_limit = int(os.environ.get("AI_TRAINING_CHAT_SUMMARY_LIMIT", "2000"))
@@ -150,10 +161,56 @@ class TrainingChatService:
         try:
             initial_reply = self._initial_plan_reply(session, subject, client_id, context)
             if initial_reply is not None:
-                response = AiTrainingChatResponse(assistant_message=initial_reply)
+                # This preview comes from validated domain content, not provider
+                # prose; it is not subject to the writing adapter's text limit.
+                response = AiTrainingChatResponse.model_construct(assistant_message=initial_reply)
+                proposal = self._lifecycle.find_proposal(session, client_id=client_id)
+                knowledge = KnowledgeResult(
+                    list(proposal.citations) if proposal else [],
+                    proposal.knowledge_status if proposal else "insufficient_evidence",
+                    proposal.knowledge_limitations
+                    if proposal
+                    else (
+                        "Esta mensagem orienta o fluxo; não fornece fundamentação para um treino."
+                    ),
+                )
             else:
+                # Retrieval uses only this client's message and scoped plan context.
+                evidence = self._knowledge.retrieve(session, client_id, message)
+                context["knowledge"] = evidence.as_context()
                 record_turn(path="model")
-                response = self._retry(lambda: self._provider.training_chat(context))
+                try:
+                    if context["rules"]["may_update_ai_draft"]:
+                        response = request_selected_training(
+                            lambda selected_context: self._retry(
+                                lambda: self._provider.training_chat(selected_context)
+                            ),
+                            context,
+                            plan_field="draft_update",
+                        )
+                    else:
+                        response = self._retry(lambda: self._provider.training_chat(context))
+                    knowledge = evidence.resolve_citations(
+                        response.citations,
+                        response.knowledge_status
+                        if "knowledge_status" in response.model_fields_set
+                        else None,
+                    )
+                except (
+                    KnowledgeCitationError,
+                    ValidationError,
+                    RedundantTrainingExerciseError,
+                ) as error:
+                    record_turn(
+                        reason=(
+                            "invalid_training_schema"
+                            if isinstance(error, ValidationError)
+                            else "invalid_training_citations"
+                            if isinstance(error, KnowledgeCitationError)
+                            else "redundant_exercise_prescription"
+                        )
+                    )
+                    raise TrainingChatDraftUpdateError from None
         except (TrainingChatUnavailableError, TrainingChatDraftUpdateError):
             session.commit()  # Preserve only the original client message for retry.
             raise
@@ -163,13 +220,18 @@ class TrainingChatService:
                 self._apply_draft_update(
                     session, editable_draft, response.draft_update, draft_revision
                 )
+                editable_draft.citations = list(knowledge.citations)
+                editable_draft.knowledge_status = knowledge.knowledge_status
+                editable_draft.knowledge_limitations = knowledge.knowledge_limitations
                 record_turn(outcome="draft_saved")
                 content = (
                     "Atualizei o rascunho conforme solicitado. "
-                    "Confira as alterações em Meu treino; "
-                    "elas ainda dependem da aprovação do instrutor. "
+                    "Confira as alterações abaixo ou em Meu treino. Quando estiver satisfeito, "
+                    "use Enviar rascunho para minha revisão. "
+                    "As alterações ainda dependem da aprovação do instrutor. "
                     "Seu plano atual não foi alterado."
                 )
+                content += "\n\n" + proposal_preview(session, editable_draft)
             else:
                 record_turn(
                     outcome="draft_blocked",
@@ -207,6 +269,9 @@ class TrainingChatService:
             adaptation_reason=response.adaptation_reason
             if response.adaptation_suggested and can_suggest_adaptation
             else None,
+            citations=knowledge.citations,
+            knowledge_status=knowledge.knowledge_status,
+            knowledge_limitations=knowledge.knowledge_limitations,
         )
         session.add(assistant)
         conversation.raw_expires_at = self._expiry()
@@ -298,17 +363,29 @@ class TrainingChatService:
     def _initial_plan_reply(
         self, session: Session, subject: str, client_id: UUID, context: dict
     ) -> str | None:
-        if context["current_training_plan"] is not None:
-            return None  # Existing-plan changes keep the adaptation/review flow.
-        if not self._requests_initial_plan(
-            context["current_user_message"], context["recent_messages"]
+        message = context["current_user_message"]
+        exercise_request = self._requests_exercise_suggestion(message)
+        if not exercise_request and not self._requests_initial_plan(
+            message, context["recent_messages"]
         ):
             return None
         record_turn(path="direct")
-        if self._lifecycle.find_proposal(session, client_id=client_id) is not None:
+        existing = self._lifecycle.find_proposal(session, client_id=client_id)
+        detailed = exercise_request or bool(
+            re.search(
+                r"\b(?:para|objetivo|muscular|dias|corpo|somente|apenas)\b",
+                self._normalized(message),
+            )
+        )
+        # Request UUIDs handle transport retries in submit_for_subject. Repeated
+        # text can be a fresh instruction or follow a failed generation, so it
+        # cannot establish that the saved draft fulfills the current request.
+        if existing is not None and not detailed:
             return (
-                "Seu rascunho já está disponível em Meu treino e aguarda revisão do instrutor. "
-                "Não criei outro plano. Você pode pedir uma alteração nesse rascunho."
+                "Seu rascunho já está disponível em Meu treino. "
+                "Você pode pedir uma alteração nesse rascunho. Quando estiver satisfeito, "
+                "use Enviar rascunho para minha revisão."
+                "\n\n" + proposal_preview(session, existing)
             )
         if not context["onboarding_completed"]:
             return self._initial_plan_guidance(context)
@@ -316,7 +393,13 @@ class TrainingChatService:
             # Keep the proposal, reply and request UUID atomic. A failed
             # generation rolls back only its savepoint, preserving the message.
             with session.begin_nested():
-                self._generation.generate_for_subject(session, subject, commit=False)
+                proposal = self._generation.generate_for_subject(
+                    session,
+                    subject,
+                    commit=False,
+                    training_request=message,
+                    replace_existing=existing is not None,
+                )
         except CompletedOnboardingRequiredError:
             return "Revise e conclua seu onboarding antes de gerar o rascunho de treino."
         except TrainingGenerationUnavailableError:
@@ -326,16 +409,19 @@ class TrainingChatService:
         record_turn(outcome="draft_saved")
         return (
             "Criei seu rascunho de treino com base no onboarding concluído. "
-            "Abra Meu treino para conferir. Ele ainda precisa da revisão e aprovação "
-            "do instrutor antes de se tornar seu plano atual."
+            "Confira a ficha abaixo ou em Meu treino. Quando estiver satisfeito, "
+            "use Enviar rascunho para minha revisão. Ela ainda precisa da aprovação "
+            "profissional antes de se tornar seu plano atual."
+            "\n\n" + proposal_preview(session, proposal)
         )
 
     @staticmethod
     def _initial_plan_guidance(context: dict) -> str:
         if context["editable_training_draft"] is not None:
             return (
-                "Seu rascunho já está disponível em Meu treino e aguarda revisão do instrutor. "
-                "Você pode pedir uma alteração nesse rascunho."
+                "Seu rascunho já está disponível em Meu treino. "
+                "Você pode pedir uma alteração nesse rascunho ou, quando estiver satisfeito, "
+                "usar Enviar rascunho para minha revisão."
             )
         if not context["onboarding_completed"]:
             return "Revise e conclua seu onboarding antes de gerar o rascunho de treino."
@@ -351,6 +437,43 @@ class TrainingChatService:
             re.search(r"\b(?:prepar\w*|gerar|gere|montar|monte|criar|crie|elabor\w*)\b", text)
             and re.search(r"\b(?:plano|treino|rascunho|ficha|proposta)\b", text)
             and re.search(r"\b(?:quer|quero|deseja|gostaria|posso|vou|vamos)\b", text)
+        )
+
+    @classmethod
+    def _requests_exercise_suggestion(cls, message: str) -> bool:
+        text = cls._normalized(message).strip()
+        text = re.sub(r"^(?:ola[!,. ]+|por favor[, ]+)", "", text)
+        if re.search(r"\bnao (?:quero|sugira|recomende|gere|crie)\b|\bevitar\b", text):
+            return False
+        return bool(
+            re.match(r"(?:que|quais)(?: sao os)? exercicios?\b", text)
+            and re.search(
+                r"\b(?:posso fazer|recomenda|sugere|para|ganho|ganhar|hipertrofia)\b", text
+            )
+            or re.match(r"(?:sugira|recomende|indique)\b.*\b(?:exercicios|treino|ficha)\b", text)
+            or re.match(r"como (?:posso )?treinar\b", text)
+            or re.match(r"(?:exercicios|treino|ficha) (?:para|de)\b", text)
+            or re.match(
+                r"(?:quero|preciso de|gostaria de) (?:um |uma )?(?:exercicios|treino|ficha)\b",
+                text,
+            )
+            or re.match(
+                r"(?:pode|poderia) (?:me )?(?:sugerir|recomendar|indicar|montar) "
+                r"(?:(?:um|uma|alguns|algumas|os|as|meu|minha) )*"
+                r"(?:exercicios|treino|ficha)\b",
+                text,
+            )
+        )
+
+    @classmethod
+    def _requests_new_plan(cls, message: str) -> bool:
+        text = cls._normalized(message)
+        return cls._requests_initial_plan(message, []) and bool(
+            re.search(
+                r"\b(?:sugestao de treino|novo (?:treino|plano)|"
+                r"(?:treino|plano) novo|corpo inteiro|todo o corpo|full body)\b",
+                text,
+            )
         )
 
     @classmethod
@@ -372,14 +495,22 @@ class TrainingChatService:
                 and cls._offers_initial_plan(questions[0])
                 and not re.search(r"\bnao\b", cls._normalized(questions[0]))
             )
+        # Detailed requests can include a goal, frequency and division. They are
+        # still explicit generation requests, not generic chat about an old exercise.
+        if re.search(
+            r"\b(?:se|caso|desde que|antes|depois|quando)\b|"
+            r"\bnao (?:gere|crie|monte|prepare|agora)\b",
+            text,
+        ):
+            return False
         return bool(
-            re.fullmatch(
+            re.match(
                 r"(?:por favor[, ]+)?(?:quero que (?:voce )?|"
                 r"(?:pode|poderia|quero|gostaria de) )?"
                 r"(?:prepare|preparar|gere|gerar|monte|montar|crie|criar|elabore|elaborar) "
-                r"(?:(?:um|o|meu|novo|primeiro|seu) )*"
-                r"(?:plano(?: de treino)?|treino|rascunho(?: de treino)?|ficha)"
-                r"(?: inicial)?(?: para mim)?(?:[, ]+por favor)?[.!?]*",
+                r"(?:(?:um|uma|o|meu|novo|primeiro|seu) )*"
+                r"(?:sugestao de treino|plano(?: de treino)?|treino|"
+                r"rascunho(?: de treino)?|ficha)\b",
                 text,
             )
         )
@@ -442,7 +573,14 @@ class TrainingChatService:
             )
         except ImmutableTrainingVersionError:
             raise ConcurrentTrainingUpdateError from None
-        except (ValidationError, InvalidTrainingContentError):
+        except (ValidationError, InvalidTrainingContentError) as error:
+            record_turn(
+                reason=(
+                    "invalid_training_schema"
+                    if isinstance(error, ValidationError)
+                    else "invalid_training_equipment"
+                )
+            )
             raise TrainingChatDraftUpdateError from None
 
     def _current_plan(self, session: Session, client_id: UUID) -> dict[str, object] | None:
@@ -663,6 +801,9 @@ class TrainingChatService:
                 reply_to_client_request_id=message.reply_to_client_request_id,
                 adaptation_suggested=message.adaptation_suggested,
                 adaptation_reason=message.adaptation_reason,
+                citations=message.citations,
+                knowledge_status=message.knowledge_status,
+                knowledge_limitations=message.knowledge_limitations,
             )
             for message in session.scalars(statement.order_by(TrainingAiMessage.sequence)).all()
         ]

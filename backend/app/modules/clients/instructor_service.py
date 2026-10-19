@@ -5,7 +5,7 @@ import json
 import unicodedata
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.modules.clients.models import Account, Client, Employee, PersonProfile
@@ -50,7 +50,9 @@ def _query():
             name.label("name"),
             key.label("sort_name"),
             Onboarding.status.label("onboarding"),
-            draft.id.label("draft_id"),
+            case((draft.submitted_for_review_at.is_not(None), draft.id), else_=None).label(
+                "draft_id"
+            ),
             current.id.label("current_id"),
             func.coalesce(
                 professional.first_name + " " + professional.surname, current.responsible_name
@@ -103,7 +105,7 @@ def search_clients(
     if training == "none":
         statement = statement.where(draft.id.is_(None), current.id.is_(None))
     elif training == "pending":
-        statement = statement.where(draft.id.is_not(None))
+        statement = statement.where(draft.submitted_for_review_at.is_not(None))
     elif training == "current":
         statement = statement.where(current.id.is_not(None))
     if responsibility == "none":
@@ -161,7 +163,7 @@ def create_first_draft(
     lifecycle = TrainingLifecycleService()
     lifecycle._lock_client(session, client_id)
     state = workspace(session, client_id)
-    if state["draft_id"] or state["current_id"]:
+    if state["current_id"] or lifecycle.find_proposal(session, client_id=client_id):
         raise ConcurrentTrainingUpdateError
     employee = session.scalar(
         select(Employee)

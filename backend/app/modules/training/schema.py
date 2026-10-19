@@ -1,10 +1,32 @@
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.integrations.ai import KnowledgeStatus
+
 PlanOrigin = Literal["ai", "instructor"]
 PlanStatus = Literal["proposal", "approved", "current", "superseded"]
+
+
+class KnowledgeCitation(BaseModel):
+    chunk_id: str
+    source_id: str
+    title: str
+    url: str
+    authors: list[str]
+    license: str
+    license_url: str
+    section: str
+    attribution: str | None = None
+    content_note: str | None = None
+    captured_at: str | None = None
+
+
+class TrainingKnowledgeResponse(BaseModel):
+    citations: list[KnowledgeCitation] = Field(default_factory=list)
+    knowledge_status: KnowledgeStatus = "insufficient_evidence"
+    knowledge_limitations: str = ""
 
 
 class TrainingPlanItemInput(BaseModel):
@@ -35,6 +57,14 @@ class ProposalUpdate(TrainingPlanVersionInput):
 
 class VersionAction(BaseModel):
     expected_revision: int = Field(ge=1)
+
+
+class AppendToCurrentAction(VersionAction):
+    current_version_id: UUID
+    expected_current_revision: int = Field(ge=1)
+    selected_positions: list[Annotated[int, Field(strict=True, ge=1)]] = Field(
+        min_length=1, max_length=100
+    )
 
 
 AdaptationOperationType = Literal["add", "remove", "replace", "adjust"]

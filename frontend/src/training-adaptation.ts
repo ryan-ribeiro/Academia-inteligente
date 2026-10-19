@@ -1,10 +1,13 @@
+import type { TrainingKnowledge } from './training-knowledge'
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
-export type TrainingAdaptation = {
+export type TrainingAdaptation = TrainingKnowledge & {
   id: string
   status: string
   source_client_request_id: string
   explanation: string
+  preview: string
   reason: string
   base_items: Array<{ position: number; exercise_name: string; sets: number; repetitions: string; load_guidance: string; rest_seconds: number }>
   operations: Array<{

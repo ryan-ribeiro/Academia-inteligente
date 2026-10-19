@@ -81,7 +81,8 @@ function Application({ session, setSession }: { session: Session | null; setSess
       return
     }
     let active = true
-    setOnboardingComplete(null)
+    // A token refresh revalidates onboarding without unmounting an active chat.
+    // Missing/expired sessions still clear it in the guard above.
     setOnboardingError(false)
     void getOwnOnboardingDraft(session.accessToken)
       .then((draft) => active && setOnboardingComplete(draft.status === 'completed'))

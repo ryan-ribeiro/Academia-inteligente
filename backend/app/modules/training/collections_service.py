@@ -261,6 +261,8 @@ def clone_current(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    if draft is not None and draft.submitted_for_review_at is None:
+        raise ConcurrentTrainingUpdateError
     if draft is not None and discard_id is None:
         raise ExistingDraftConflict(draft)
     if discard_id is not None and (

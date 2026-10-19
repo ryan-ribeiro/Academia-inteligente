@@ -1,0 +1,513 @@
+{
+  "version": 1,
+  "review_note": "Technical review of selected content and reuse terms on 2026-10-13; no individual clinical approval. All candidate metadata is retained; only allowed, reviewed selections are indexed. No third-party media.",
+  "sources": [
+    {
+      "id": "nhs-strength",
+      "title": "Strength exercises",
+      "url": "https://www.nhs.uk/live-well/exercise/strength-exercises/",
+      "authors": [
+        "NHS / Department of Health and Social Care"
+      ],
+      "language": "en",
+      "license": "OGL-3.0",
+      "license_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-02-28",
+      "captured_at": "2026-10-13",
+      "attribution": "Information from the NHS website, as at 131026. Information from the NHS website is licensed under the Open Government Licence v3.0.",
+      "content_note": "Trechos originais em inglês, capturados em 13/10/2026; sem imagens, vídeos, marcas ou conteúdo de terceiros. Não implica endosso da instituição.",
+      "limitations": [
+        "Orientações gerais de força e mobilidade; não são prescrição individual nem diagnóstico."
+      ],
+      "chunks": [
+        {
+          "id": "nhs-strength-1",
+          "section": "Progressão de exercícios de força / Introduction",
+          "content": "Build up slowly and aim to gradually increase the repetitions of each exercise over time."
+        },
+        {
+          "id": "nhs-strength-2",
+          "section": "Elevação de panturrilha / Calf raises",
+          "content": "The movement should be slow and controlled."
+        }
+      ],
+      "license_review_url": "https://www.nhs.uk/our-policies/terms-and-conditions/",
+      "publisher_reviewed_at": "2024-02-28"
+    },
+    {
+      "id": "nhs-flexibility",
+      "title": "Flexibility exercises",
+      "url": "https://www.nhs.uk/live-well/exercise/flexibility-exercises/",
+      "authors": [
+        "NHS / Department of Health and Social Care"
+      ],
+      "language": "en",
+      "license": "OGL-3.0",
+      "license_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2026-11-20",
+      "captured_at": "2026-10-13",
+      "attribution": "Information from the NHS website, as at 131026. Information from the NHS website is licensed under the Open Government Licence v3.0.",
+      "content_note": "Trechos originais em inglês, capturados em 13/10/2026; sem imagens, vídeos, marcas ou conteúdo de terceiros. Não implica endosso da instituição.",
+      "limitations": [
+        "Movimentos leves e gerais de mobilidade; respeitar restrições relatadas e revisão do instrutor."
+      ],
+      "chunks": [
+        {
+          "id": "nhs-flexibility-1",
+          "section": "Rotação cervical / Neck rotation",
+          "content": "Slowly turn your head towards your left shoulder as far as is comfortable."
+        },
+        {
+          "id": "nhs-flexibility-2",
+          "section": "Mobilidade cervical / Neck rotation",
+          "content": "Hold for 5 seconds and return to the starting position."
+        }
+      ],
+      "license_review_url": "https://www.nhs.uk/our-policies/terms-and-conditions/",
+      "publisher_reviewed_at": "2023-11-20"
+    },
+    {
+      "id": "nhs-balance",
+      "title": "Balance exercises",
+      "url": "https://www.nhs.uk/live-well/exercise/balance-exercises/",
+      "authors": [
+        "NHS / Department of Health and Social Care"
+      ],
+      "language": "en",
+      "license": "OGL-3.0",
+      "license_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2026-11-07",
+      "captured_at": "2026-10-13",
+      "attribution": "Information from the NHS website, as at 131026. Information from the NHS website is licensed under the Open Government Licence v3.0.",
+      "content_note": "Trechos originais em inglês, capturados em 13/10/2026; sem imagens, vídeos, marcas ou conteúdo de terceiros. Não implica endosso da instituição.",
+      "limitations": [
+        "Equilíbrio com apoio não substitui avaliação individual de risco de queda."
+      ],
+      "chunks": [
+        {
+          "id": "nhs-balance-1",
+          "section": "Equilíbrio com apoio / Introduction",
+          "content": "Consider doing the exercises near a wall or a stable chair just in case you lose your balance."
+        },
+        {
+          "id": "nhs-balance-2",
+          "section": "Passo controlado / Sideways walking",
+          "content": "slow and controlled manner"
+        }
+      ],
+      "license_review_url": "https://www.nhs.uk/our-policies/terms-and-conditions/",
+      "publisher_reviewed_at": "2023-11-07"
+    },
+    {
+      "id": "biga-anatomy",
+      "title": "Anatomy & Physiology (2019)",
+      "url": "https://open.oregonstate.education/anatomy/",
+      "authors": [
+        "Lindsay M. Biga",
+        "Staci Bronson",
+        "Sierra Dawson",
+        "Amy Harwell",
+        "Robin Hopkins",
+        "Joel Kaufmann",
+        "Mike LeMaster",
+        "Philip Matern",
+        "Katie Morrison-Graham",
+        "Kristen Oja",
+        "Devon Quick",
+        "Jon Runyeon",
+        "OSU OERU",
+        "OpenStax"
+      ],
+      "language": "en",
+      "license": "CC-BY-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Lindsay M. Biga; Staci Bronson; Sierra Dawson; Amy Harwell; Robin Hopkins; Joel Kaufmann; Mike LeMaster; Philip Matern; Katie Morrison-Graham; Kristen Oja; Devon Quick; Jon Runyeon; OSU OERU; OpenStax. Anatomy & Physiology (2019).",
+      "content_note": "Resumo traduzido e adaptado da seção 10.6, distribuído sob CC BY-SA 4.0. Compartilhamento pela mesma licença aplica-se a este resumo; sem imagens ou materiais de terceiros.",
+      "limitations": [
+        "Livro de fundamentos de fisiologia, não diretriz clínica; não estabelece cargas adequadas a cada cliente."
+      ],
+      "chunks": [
+        {
+          "id": "biga-anatomy-1",
+          "section": "10.6 Exercise and Muscle Performance — adaptações musculares",
+          "content": "O treinamento resistido pode ampliar o diâmetro das fibras musculares pela incorporação de proteínas estruturais e miofibrilas. O exercício de resistência aeróbia favorece adaptações metabólicas, como maior disponibilidade de mitocôndrias e redes capilares. Desuso pode reduzir massa e desempenho muscular."
+        },
+        {
+          "id": "biga-anatomy-2",
+          "section": "10.6 Exercise and Muscle Performance — recuperação",
+          "content": "Cargas excessivas, recuperação insuficiente entre sessões e alinhamento articular inadequado podem contribuir para lesões por sobreuso. A progressão de carga deve considerar recuperação e execução. Esses fundamentos não permitem determinar a causa da dor de uma pessoa."
+        }
+      ],
+      "license_review_url": "https://open.oregonstate.education/anatomy/back-matter/creative-commons-license/",
+      "content_review_url": "https://open.oregonstate.education/anatomy/chapter/10-6-exercise-and-muscle-performance/"
+    },
+    {
+      "id": "rojas-deep-squat-2024",
+      "title": "Impact of the deep squat on articular knee joint structures, friend or enemy? A scoping review (2024)",
+      "url": "https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2024.1477796/full",
+      "authors": [
+        "Andrés Rojas-Jaramillo",
+        "Daniel A. Cuervo-Arango",
+        "Juan D. Quintero",
+        "Juan D. Ascuntar-Viteri",
+        "Natalia Acosta-Arroyave",
+        "Juan Ribas-Serna",
+        "Juan José González-Badillo",
+        "David Rodríguez-Rosell"
+      ],
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Andrés Rojas-Jaramillo; Daniel A. Cuervo-Arango; Juan D. Quintero; Juan D. Ascuntar-Viteri; Natalia Acosta-Arroyave; Juan Ribas-Serna; Juan José González-Badillo; David Rodríguez-Rosell. Impact of the deep squat on articular knee joint structures, friend or enemy? A scoping review (2024).",
+      "content_note": "Resumo traduzido e adaptado para pt-BR; consulte o original. Não constitui aprovação clínica individual.",
+      "limitations": [
+        "A revisão excluiu populações com patologias do joelho; não extrapolar segurança para dor, lesão, artrose ou pós-operatório.",
+        "Estudos heterogêneos e seguimento limitado não comprovam risco zero."
+      ],
+      "chunks": [
+        {
+          "id": "rojas-deep-squat-2024-1",
+          "section": "Abstract — população e resultados",
+          "content": "A revisão de escopo reuniu 15 estudos sobre agachamento profundo e saúde articular do joelho em pessoas treinadas. A maioria não encontrou efeitos negativos nas condições estudadas. Técnica adequada foi uma condição salientada pelos autores."
+        },
+        {
+          "id": "rojas-deep-squat-2024-2",
+          "section": "2.1 Eligibility criteria — limites de aplicação",
+          "content": "Estudos de populações com patologias do joelho foram excluídos. Portanto, os resultados não autorizam indicar agachamento profundo para um cliente com dor ou lesão, nem desconsiderar suas restrições. A proposta deve passar pelo instrutor."
+        }
+      ]
+    },
+    {
+      "id": "verville-low-back-2023",
+      "title": "Benefits and Harms of Structured Exercise Programs for Chronic Primary Low Back Pain in Adults (2023)",
+      "url": "https://link.springer.com/article/10.1007/s10926-023-10124-4",
+      "authors": [
+        "Leslie Verville",
+        "Rachel Ogilvie",
+        "Cesar A. Hincapié",
+        "Danielle Southerst",
+        "Hainan Yu",
+        "André Bussières",
+        "Douglas P. Gross",
+        "Paulo Pereira",
+        "Silvano Mior",
+        "Andrea C. Tricco",
+        "Christine Cedraschi",
+        "Ginny Brunton",
+        "Margareta Nordin",
+        "Gaelan Connell",
+        "Jessica J. Wong",
+        "Heather M. Shearer",
+        "Joyce G. B. Lee",
+        "Dan Wang",
+        "Jill A. Hayden",
+        "Carol Cancelliere"
+      ],
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Leslie Verville e colaboradores (2023). Benefits and Harms of Structured Exercise Programs for Chronic Primary Low Back Pain in Adults. Autoria completa registrada e vinculada ao artigo original.",
+      "content_note": "Resumo traduzido e adaptado para pt-BR; consulte o original. Não constitui aprovação clínica individual.",
+      "limitations": [
+        "Evidência de grupo para lombalgia crônica primária, sem diagnóstico individual.",
+        "Certeza predominantemente muito baixa nas comparações de modalidades específicas."
+      ],
+      "chunks": [
+        {
+          "id": "verville-low-back-2023-1",
+          "section": "Abstract — programas estruturados",
+          "content": "A síntese de 13 ensaios com risco de viés baixo ou incerto avaliou programas estruturados de exercício em adultos com lombalgia crônica primária. Ao agrupar modalidades, houve evidência de certeza moderada de redução de dor e limitações funcionais em comparação com ausência de intervenção."
+        },
+        {
+          "id": "verville-low-back-2023-2",
+          "section": "Abstract — limites e efeitos adversos",
+          "content": "Comparações entre modalidades específicas apresentaram evidência predominantemente de certeza muito baixa. Alguns estudos relataram aumento temporário de dor leve. A revisão não estabelece um exercício superior para toda pessoa nem permite atribuir um diagnóstico à queixa de dor lombar."
+        }
+      ]
+    },
+    {
+      "id": "pavlova-tendinopathy-2023",
+      "title": "Effect of resistance exercise dose components for tendinopathy management: a systematic review with meta-analysis (2023)",
+      "url": "https://bjsm.bmj.com/content/57/20/1327",
+      "authors": [
+        "Anastasia Vladimirovna Pavlova",
+        "Joanna S. C. Shim",
+        "Rachel Moss",
+        "Colin Maclean",
+        "David Brandie",
+        "Laura Mitchell",
+        "Leon Greig",
+        "Eva Parkinson",
+        "Lyndsay Alexander",
+        "Victoria Tzortziou Brown",
+        "Dylan Morrissey",
+        "Kay Cooper",
+        "Paul A. Swinton"
+      ],
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Anastasia Vladimirovna Pavlova; Joanna S. C. Shim; Rachel Moss; Colin Maclean; David Brandie; Laura Mitchell; Leon Greig; Eva Parkinson; Lyndsay Alexander; Victoria Tzortziou Brown; Dylan Morrissey; Kay Cooper; Paul A. Swinton. Effect of resistance exercise dose components for tendinopathy management: a systematic review with meta-analysis (2023).",
+      "content_note": "Resumo traduzido e adaptado para pt-BR; consulte o original. Não constitui aprovação clínica individual.",
+      "limitations": [
+        "Componentes de dose foram mal reportados; associações agregadas não determinam carga segura individual.",
+        "Populações tinham tendinopatias avaliadas; dor relatada no chat não confirma tendinopatia."
+      ],
+      "chunks": [
+        {
+          "id": "pavlova-tendinopathy-2023-1",
+          "section": "Abstract — componentes da dose",
+          "content": "A revisão com meta-análise investigou intensidade, volume e frequência do exercício resistido em tendinopatias comuns. A análise encontrou padrões de maior eficácia média associados a cargas externas adicionais e menor frequência, possivelmente por maior estímulo e recuperação."
+        },
+        {
+          "id": "pavlova-tendinopathy-2023-2",
+          "section": "Summary/conclusion — incertezas",
+          "content": "O relato da dose na literatura foi incompleto. Os resultados agregados não justificam aumentar carga automaticamente diante de dor nem fixar uma frequência universal. Restrições do cliente, tolerância e revisão pelo instrutor continuam necessárias."
+        }
+      ],
+      "license_review_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10579176/",
+      "content_review_url": "https://pubmed.ncbi.nlm.nih.gov/37169370/"
+    },
+    {
+      "id": "wu-rotator-cuff-2025",
+      "title": "Specific modes of exercise to improve rotator cuff-related shoulder pain: systematic review and meta-analysis (2025)",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12011739/",
+      "authors": [
+        "Dianxuan Wu",
+        "Zhicheng Wen",
+        "Haolin Ke",
+        "Jiexin Zhang",
+        "Shaozi Zhong",
+        "Jiachen Teng",
+        "Lan Xu",
+        "Jintao Li",
+        "Yan Shao",
+        "Chun Zeng"
+      ],
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Dianxuan Wu; Zhicheng Wen; Haolin Ke; Jiexin Zhang; Shaozi Zhong; Jiachen Teng; Lan Xu; Jintao Li; Yan Shao; Chun Zeng. Specific modes of exercise to improve rotator cuff-related shoulder pain: systematic review and meta-analysis (2025).",
+      "content_note": "Resumo traduzido e adaptado para pt-BR; consulte o original. Não constitui aprovação clínica individual.",
+      "limitations": [
+        "Evidência de populações com dor relacionada ao manguito; queixa de ombro não identifica estrutura lesionada.",
+        "Resultados variam por modalidade e desfecho; não fornecem prescrição universal."
+      ],
+      "chunks": [
+        {
+          "id": "wu-rotator-cuff-2025-1",
+          "section": "Abstract — intervenções para ombro",
+          "content": "A revisão reuniu 13 estudos e 690 participantes com dor relacionada ao manguito rotador. Exercícios específicos mostraram melhorias modestas de dor e função em comparação com exercícios inespecíficos. Os efeitos variaram por modalidade e duração."
+        },
+        {
+          "id": "wu-rotator-cuff-2025-2",
+          "section": "Abstract — individualização",
+          "content": "Análises de subgrupos avaliaram mobilidade, alongamento, estabilização escapular, exercícios excêntricos e propriocepção. Nem todas as modalidades melhoraram todos os desfechos. Os resultados sustentam individualização profissional, sem permitir diagnosticar uma lesão do manguito a partir do chat."
+        }
+      ],
+      "license_review_url": "https://www.frontiersin.org/journals/bioengineering-and-biotechnology/articles/10.3389/fbioe.2025.1560597/full",
+      "content_review_url": "https://www.frontiersin.org/journals/bioengineering-and-biotechnology/articles/10.3389/fbioe.2025.1560597/full"
+    },
+    {
+      "id": "lin-knee-proprioception-2025",
+      "title": "Effects of proprioceptive exercise for knee osteoarthritis: a systematic review and meta-analysis (2025)",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12234485/",
+      "authors": [
+        "Yaoyu Lin",
+        "Debiao Yu",
+        "Xiaoting Chen",
+        "Peng Chen",
+        "Nan Chen",
+        "Bin Shao",
+        "Qiuxiang Lin",
+        "Fuchun Wu"
+      ],
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "commercial_use_allowed": true,
+      "review_status": "approved",
+      "reviewed_by": "repository-content-license-review",
+      "reviewed_at": "2026-10-13",
+      "review_due_at": "2027-10-13",
+      "captured_at": "2026-10-13",
+      "attribution": "Yaoyu Lin; Debiao Yu; Xiaoting Chen; Peng Chen; Nan Chen; Bin Shao; Qiuxiang Lin; Fuchun Wu. Effects of proprioceptive exercise for knee osteoarthritis: a systematic review and meta-analysis (2025).",
+      "content_note": "Resumo traduzido e adaptado para pt-BR; consulte o original. Não constitui aprovação clínica individual.",
+      "limitations": [
+        "Certeza baixa, heterogeneidade dos protocolos e efeitos inconsistentes entre escalas.",
+        "População com artrose de joelho; não extrapolar para qualquer dor de joelho nem inferir artrose."
+      ],
+      "chunks": [
+        {
+          "id": "lin-knee-proprioception-2025-1",
+          "section": "Abstract — equilíbrio e estado clínico",
+          "content": "A revisão reuniu 22 ensaios de exercício proprioceptivo em pessoas com artrose de joelho. A evidência de baixa certeza indicou benefícios no equilíbrio e no escore global WOMAC, com resultados variáveis para dor, rigidez e função isoladamente."
+        },
+        {
+          "id": "lin-knee-proprioception-2025-2",
+          "section": "Abstract — limites de duração e aplicação",
+          "content": "Benefícios em alguns desfechos foram observados sobretudo em intervenções curtas. Protocolos heterogêneos e incerteza limitam uma dose universal. Esses achados não confirmam artrose em alguém que relata dor no joelho; adaptações devem respeitar restrições e avaliação profissional."
+        }
+      ],
+      "license_review_url": "https://www.frontiersin.org/journals/rehabilitation-sciences/articles/10.3389/fresc.2025.1596966/full",
+      "content_review_url": "https://www.frontiersin.org/journals/rehabilitation-sciences/articles/10.3389/fresc.2025.1596966/full"
+    },
+    {
+      "id": "br-physical-activity-2021",
+      "title": "Guia de atividade física: recomendações para gestores e profissionais (2021)",
+      "url": "https://bvsms.saude.gov.br/bvs/publicacoes/guia_atividade_fisica_recomendacoes_gestores_profissionais.pdf",
+      "authors": [
+        "Ministério da Saúde"
+      ],
+      "language": "pt-BR",
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "commercial_use_allowed": false,
+      "review_status": "excluded",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "review_due_at": null,
+      "captured_at": "2026-10-13",
+      "attribution": "",
+      "content_note": "Somente metadados bibliográficos; conteúdo não ingerido.",
+      "limitations": [
+        "Licença NC: uso comercial não autorizado; conteúdo excluído do RAG."
+      ],
+      "chunks": []
+    },
+    {
+      "id": "open-exercise-physiology",
+      "title": "Open Textbook of Exercise Physiology",
+      "url": "https://pressbooks.openeducationalberta.ca/otep/",
+      "authors": [
+        "Brian MacIntosh (organizador)"
+      ],
+      "language": "en",
+      "license": "CC-BY-NC-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc/4.0/",
+      "commercial_use_allowed": false,
+      "review_status": "excluded",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "review_due_at": null,
+      "captured_at": "2026-10-13",
+      "attribution": "",
+      "content_note": "Somente metadados bibliográficos; conteúdo não ingerido.",
+      "limitations": [
+        "Licença NC: uso comercial não autorizado; conteúdo excluído do RAG."
+      ],
+      "chunks": []
+    },
+    {
+      "id": "who-low-back-guideline-2023",
+      "title": "WHO guideline for non-surgical management of chronic primary low back pain (2023)",
+      "url": "https://www.who.int/publications/i/item/9789240081789",
+      "authors": [
+        "World Health Organization"
+      ],
+      "language": "en",
+      "license": "pending",
+      "license_url": "https://www.who.int/publications/i/item/9789240081789",
+      "commercial_use_allowed": false,
+      "review_status": "pending",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "review_due_at": null,
+      "captured_at": "2026-10-13",
+      "attribution": "",
+      "content_note": "Somente metadados bibliográficos; conteúdo não ingerido.",
+      "limitations": [
+        "Condições de reutilização não confirmadas; conteúdo pendente e excluído do RAG."
+      ],
+      "chunks": []
+    },
+    {
+      "id": "jospt-rotator-cuff-2025",
+      "title": "Rotator Cuff Tendinopathy Clinical Practice Guideline (2025)",
+      "url": "https://www.orthopt.org/uploads/content_files/files/Rotator_Cuff_CPG.pdf",
+      "authors": [
+        "JOSPT"
+      ],
+      "language": "en",
+      "license": "pending",
+      "license_url": "https://www.orthopt.org/uploads/content_files/files/Rotator_Cuff_CPG.pdf",
+      "commercial_use_allowed": false,
+      "review_status": "pending",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "review_due_at": null,
+      "captured_at": "2026-10-13",
+      "attribution": "",
+      "content_note": "Somente metadados bibliográficos; conteúdo não ingerido.",
+      "limitations": [
+        "Condições de reutilização não confirmadas; conteúdo pendente e excluído do RAG."
+      ],
+      "chunks": []
+    },
+    {
+      "id": "bmj-knee-modalities-2025",
+      "title": "Exercise modalities for knee osteoarthritis (2025)",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12522397/",
+      "authors": [
+        "BMJ"
+      ],
+      "language": "en",
+      "license": "CC-BY-NC-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc/4.0/",
+      "commercial_use_allowed": false,
+      "review_status": "excluded",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "review_due_at": null,
+      "captured_at": "2026-10-13",
+      "attribution": "",
+      "content_note": "Somente metadados bibliográficos; conteúdo não ingerido.",
+      "limitations": [
+        "Licença NC: uso comercial não autorizado; conteúdo excluído do RAG."
+      ],
+      "chunks": []
+    }
+  ]
+}
