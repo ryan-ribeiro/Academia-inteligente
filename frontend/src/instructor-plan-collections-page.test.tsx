@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { InstructorPlanCollectionsPage } from './instructor-plan-collections-page'
+import { expectReviewSessions } from './test/training-session-assertions'
+import { sessionNames, sessionReviewItems } from './test/training-session-fixture'
 
 const plan = { id: 'current', name: 'Força', client_name: 'Ana Silva', status: 'current', revision: 2, approved_at: '2026-09-27T12:00:00Z', responsible_instructor_name: 'Maria Silva', objective: 'Ganhar força', items: [{ exercise_name: 'Agachamento', sets: 3, repetitions: '8', load_guidance: 'Confortável', rest_seconds: 90, equipment_model_id: null, equipment_requirement: null }] }
 const past = { ...plan, id: 'past', status: 'superseded', name: 'Treino anterior', responsible_instructor_name: 'João Silva' }
@@ -20,7 +22,7 @@ function mockFetch(override?: (url: string, init?: RequestInit) => unknown) {
   vi.stubGlobal('fetch', mock)
   return mock
 }
-function mount(mine = false) { render(<MemoryRouter><InstructorPlanCollectionsPage accessToken="token" onSignOut={vi.fn()} mine={mine} /></MemoryRouter>) }
+function mount(mine = false, entry = '/') { return render(<MemoryRouter initialEntries={[entry]}><InstructorPlanCollectionsPage accessToken="token" onSignOut={vi.fn()} mine={mine} /></MemoryRouter>) }
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 test('combines filters and opens immutable history with original responsibility', async () => {
@@ -90,7 +92,7 @@ test.each([false, true])('collection mine=%s identifies the client in cards and 
   expect(within(detail).getByRole('heading', { name: 'Força' })).toHaveFocus()
   expect(within(detail).getByText('Cliente: Ana Silva')).toBeInTheDocument()
   expect(within(detail).getByRole('heading', { name: 'Agachamento' })).toBeInTheDocument()
-  for (const label of ['Séries', 'Repetições', 'Descanso', 'Orientação de carga', 'Confortável']) expect(within(detail).getByText(label)).toBeInTheDocument()
+  for (const label of ['Séries', 'Repetições ou duração', 'Descanso', 'Orientação de carga', 'Confortável']) expect(within(detail).getByText(label)).toBeInTheDocument()
   expect(open).toHaveAttribute('aria-pressed', 'true')
   fireEvent.click(within(detail).getByRole('button', { name: /Voltar à lista/ }))
   await waitFor(() => expect(open).toHaveFocus())
@@ -108,4 +110,48 @@ test('clears every applied filter and returns to the complete collection', async
   await waitFor(() => expect(screen.queryByText('Consulta filtrada')).not.toBeInTheDocument())
   expect(screen.getByLabelText('Nome do cliente')).toHaveValue('')
   expect(fetchMock.mock.calls.filter(([url]) => url.includes('/collections?')).at(-1)?.[0]).toMatch(/mine=false&limit=20$/)
+})
+
+test.each([false, true])('collection mine=%s preserves sessions on reopening and shows historical prescriptions and attribution', async (mine) => {
+  const current = { ...plan, items: sessionReviewItems }
+  const historicalItems = sessionReviewItems.map((item) => ({ ...item, exercise_name: `Histórico ${item.exercise_name}`, sets: item.sets + 10, load_guidance: `Histórico ${item.load_guidance}` }))
+  const historical = { ...past, approved_at: '2026-08-20T12:00:00Z', items: historicalItems }
+  const before = structuredClone({ current, historical })
+  const fetchMock = mockFetch((url) => {
+    if (url.includes('/collections?')) return ok({ items: [current], next_cursor: null })
+    if (url.includes('/history')) return ok({ items: [current, historical], next_cursor: null })
+    if (url.endsWith('/current')) return ok(current)
+    if (url.endsWith('/past')) return ok(historical)
+    return undefined
+  })
+  const first = mount(mine)
+  const open = await screen.findByRole('button', { name: 'Ver plano e histórico de Ana Silva' })
+  fireEvent.click(open)
+  let detail = await screen.findByRole('region', { name: 'Detalhes do plano' })
+  expectReviewSessions(detail)
+  expect(within(detail).getByText('Plano atual')).toBeInTheDocument()
+  expect(within(detail).getByText('Cliente: Ana Silva')).toBeInTheDocument()
+  expect(within(detail).getByText('Maria Silva')).toBeInTheDocument()
+  expect(within(detail).getByText(/27 de set\. de 2026/)).toBeInTheDocument()
+  fireEvent.click(within(detail).getByRole('tab', { name: 'Histórico' }))
+  expect(within(detail).queryByRole('region', { name: 'Treino A' })).not.toBeInTheDocument()
+  fireEvent.click(within(detail).getByRole('button', { name: /Treino anterior/ }))
+  await screen.findByText('Histórico — somente leitura')
+  expectReviewSessions(detail, historicalItems, sessionNames.map((names) => names.map((name) => `Histórico ${name}`)))
+  expect(within(detail).getByText('João Silva')).toBeInTheDocument()
+  expect(within(detail).getByText(/20 de ago\. de 2026/)).toBeInTheDocument()
+  expect(within(detail).queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
+  fireEvent.click(within(detail).getByRole('button', { name: 'Voltar ao plano atual' }))
+  await waitFor(() => expect(within(detail).getByText('Plano atual')).toBeInTheDocument())
+  expectReviewSessions(detail)
+  fireEvent.click(within(detail).getByRole('button', { name: /Voltar à lista/ }))
+  await waitFor(() => expect(open).toHaveFocus())
+  first.unmount()
+  // The client workspace reaches this same reader through the existing deep link.
+  mount(mine, '/instrutor/todos-os-planos?plano=current')
+  detail = await screen.findByRole('region', { name: 'Detalhes do plano' })
+  expectReviewSessions(detail)
+  expect(within(detail).getByRole('heading', { name: 'Força' })).toHaveFocus()
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
+  expect({ current, historical }).toEqual(before)
 })

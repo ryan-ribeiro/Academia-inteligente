@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { InstructorPendingPlansPage } from './instructor-pending-plans-page'
+import { expectReviewSessions } from './test/training-session-assertions'
+import { sessionReviewItems } from './test/training-session-fixture'
 
 const plan = {
   id: 'draft', plan_id: 'plan', version_number: 1, revision: 1,
@@ -20,6 +22,39 @@ const citation = {
 }
 function mount() { render(<MemoryRouter><InstructorPendingPlansPage accessToken="token" onSignOut={vi.fn()} /></MemoryRouter>) }
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+test('session display numbering never changes the original global append selection or payload', async () => {
+  const targetItems = sessionReviewItems.map((item) => ({ ...item, exercise_name: `Atual ${item.exercise_name}` }))
+  const source = { ...plan, source: 'ai', items: sessionReviewItems, append_target: { id: 'target', revision: 8, name: 'Atual', objective: 'Força', items: targetItems } }
+  const before = structuredClone(source)
+  const combined = { ...source, revision: 2, append_target: null, items: [...targetItems, source.items[4]] }
+  const fetchMock = mockFetch((url) => {
+    if (url.endsWith('/append-to-current')) return ok(combined)
+    if (url.includes('/pending?')) return ok({ items: [source], next_offset: null })
+    if (url.endsWith('/pending/draft')) return ok(source)
+    return undefined
+  })
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Revisar plano de Maria Silva' }))
+  const preview = await screen.findByRole('tabpanel', { name: 'Visualizar treino' })
+  expectReviewSessions(preview)
+  expect(screen.getAllByRole('region', { name: 'Treino A' })).toHaveLength(2)
+  const currentA = screen.getAllByRole('region', { name: 'Treino A' })[1]
+  expect(within(currentA).getByRole('heading', { name: 'Atual Agachamento (com apoio)' })).toBeInTheDocument()
+  expect(within(currentA).getAllByRole('listitem')).toHaveLength(2)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Adicionar exercício 5: Agachamento (com apoio) (Dia B)' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Preparar nova versão com selecionados' }))
+  await screen.findByText(/Nova versão preparada/)
+  const request = fetchMock.mock.calls.find(([url]) => url.endsWith('/append-to-current'))!
+  expect(JSON.parse(request[1]!.body as string)).toEqual({ expected_revision: 1, current_version_id: 'target', expected_current_revision: 8, selected_positions: [5] })
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/approve'))).toBe(false)
+  const sessionB = within(screen.getByRole('region', { name: 'Treino B' }))
+  expect(sessionB.getAllByRole('listitem')).toHaveLength(3)
+  expect(sessionB.getByRole('heading', { name: 'Agachamento (com apoio)' })).toBeInTheDocument()
+  expect(sessionB.queryByRole('heading', { name: 'Remada' })).not.toBeInTheDocument()
+  expect(source).toEqual(before)
+})
 
 function mockFetch(action?: (url: string, init?: RequestInit) => unknown) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

@@ -168,6 +168,15 @@ palette, or page composition.
   each with its own complete ordered table. Keep day labels visible in section
   titles and restart row numbering within each table; reuse the existing shared
   table renderer and preserve all exercises and source information.
+  Current/approved sheets retain the same expanded, named session sections with
+  per-session exercise counts, accent borders and locally restarted numbering.
+  Use the shared session helper for client and instructor readers: client item
+  positions determine order; positionless review items retain API array order.
+  Recognize trailing `(Dia A)` letter markers and legacy days 1–7 (A–G) only in
+  display copies. Keep unassigned items in “Exercícios sem ficha definida” when
+  mixed with marked sessions; an unmarked sheet remains one ordinary session.
+  Preserve repeated exercises, prescriptions, equipment and original positions;
+  display numbering never changes approval, editing or append-selection payloads.
   Keep wide tables inside a keyboard-accessible horizontal scroll region on
   small screens. Retain knowledge sources and limitations next to the proposal.
   The client explicitly sends a satisfactory draft for instructor review from
@@ -187,8 +196,11 @@ palette, or page composition.
   list or selected plan with an explicit return action and restored focus.
   Show the plan title separately from an explicit “Cliente: {nome}” label on
   list cards, selected-plan headers, and approval-history entries.
-  Reuse the shared training content view: objective, numbered exercises, grouped
-  sets/repetitions/rest, load guidance, and retained equipment labels. Keep
+  Reuse the shared training content view: objective, expanded session sections,
+  numbered exercises, grouped sets/repetitions or duration/rest, load guidance,
+  and retained equipment labels. Apply the same grouping to pending previews,
+  append comparisons, both current-plan collections and their historical detail.
+  Historical sections use that version's retained content and attribution. Keep
   approved/current/history states explicit, with a separate approval-history
   tab. All-plan search keeps the client name prominent and groups optional
   instructor/date filters behind “Mais filtros”, with a clear reset action.

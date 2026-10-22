@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { CurrentTrainingPage } from './current-training-page'
+import { sessionCurrentItems, sessionItemIndexes, sessionNames } from './test/training-session-fixture'
 
 vi.mock('./occupancy', () => ({ getOccupancy: async () => ({ occupancy: 0 }) }))
 
@@ -245,4 +246,45 @@ test('keeps an unsubmitted draft visible and explains a stale submission', async
   expect(await screen.findByText(/O rascunho mudou/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Enviar rascunho para minha revisão' })).toBeEnabled()
   expect(screen.queryByText(/Enviado para revisão do instrutor/)).not.toBeInTheDocument()
+})
+
+test.each(['current', 'draft'])('retains complete session prescriptions in the %s sheet alongside the other version and after reload', async (state) => {
+  const current = { ...currentPlan, name: 'Ficha aprovada A/B/C', items: [...sessionCurrentItems].reverse() }
+  const draft = {
+    ...currentPlan, id: 'draft-abc', revision: 3, origin: 'ai', status: 'proposal', submitted_for_review_at: null,
+    name: 'Rascunho separado A/B/C',
+    items: sessionCurrentItems.map((item) => ({ ...item, exercise_name: `Rascunho ${item.exercise_name}`, load_guidance: `Rascunho ${item.load_guidance}` })),
+  }
+  const before = structuredClone({ current, draft })
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith('/current') ? { plan: current } : [draft] })))
+  for (let reload = 0; reload < 2; reload++) {
+    const mounted = render(<CurrentTrainingPage accessToken="token" onSignOut={vi.fn()} />)
+    const heading = await screen.findByRole('heading', { name: state === 'current' ? current.name : draft.name })
+    const sheet = within(heading.closest('section')!)
+    expect(sheet.getByText(state === 'current' ? 'Plano atual' : 'Rascunho — ainda não aprovado')).toBeInTheDocument()
+    expect(sheet.queryByText(state === 'current' ? 'Rascunho — ainda não aprovado' : 'Plano atual')).not.toBeInTheDocument()
+    if (state === 'current') {
+      expect(sheet.getByText('Instrutor responsável: Maria Silva')).toBeInTheDocument()
+      expect(sheet.getByText('Data de aprovação: 27/09/2026')).toBeInTheDocument()
+    }
+    for (const [index, label] of ['A', 'B', 'C'].entries()) {
+      const section = within(sheet.getByRole('region', { name: `Treino ${label}` }))
+      expect(section.getByText('2 exercícios')).toBeInTheDocument()
+      const exercises = state === 'current' ? section.getAllByRole('article') : within(section.getByRole('table')).getAllByRole('row').slice(1)
+      expect(exercises).toHaveLength(2)
+      exercises.forEach((exercise, order) => {
+        const item = sessionCurrentItems[sessionItemIndexes[index][order]]
+        const view = within(exercise)
+        expect(view.getByText(`${state === 'draft' ? 'Rascunho ' : ''}${sessionNames[index][order]}`)).toBeInTheDocument()
+        if (state === 'current') {
+          for (const text of [`Exercício ${order + 1}`, `${item.sets} séries`, `${item.repetitions} repetições`, item.rest_seconds ? `Descanso: ${item.rest_seconds} s` : 'Sem descanso programado', item.load_guidance, `Equipamento registrado: ${item.equipment_requirement}`]) expect(view.getByText(text)).toBeInTheDocument()
+        } else {
+          expect(view.getByRole('rowheader', { name: String(order + 1) })).toBeInTheDocument()
+          expect(view.getAllByRole('cell').map((cell) => cell.textContent)).toEqual([`Rascunho ${sessionNames[index][order]}`, String(item.sets), item.repetitions, `Rascunho ${item.load_guidance}`, `${item.rest_seconds} s`])
+        }
+      })
+    }
+    mounted.unmount()
+  }
+  expect({ current, draft }).toEqual(before)
 })
