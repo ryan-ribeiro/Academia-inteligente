@@ -117,7 +117,12 @@ def test_question_routes_through_ai_focus_and_scoped_retrieval_before_generation
     draft = session.scalar(
         select(TrainingPlanVersion).where(TrainingPlanVersion.status == "proposal")
     )
-    assert writer.focus_contexts == [{"training_request": user_message}]
+    assert writer.focus_contexts == [
+        {
+            "training_request": user_message,
+            "focus_constraints": {"allowed_scopes": ["targeted", "unspecified"]},
+        }
+    ]
     assert writer.contexts[0]["training_focus"]["muscle_groups"] == groups
     assert writer.contexts[0]["training_focus"]["goal"] == "Ganho de massa muscular"
     assert writer.contexts[0]["completed_onboarding"]["limitations_or_complaints"] == (
@@ -284,7 +289,9 @@ def test_full_body_focus_correction_keeps_broader_scope_before_retrieval(session
     create_client(session, "client", "client@example.test")
     complete_onboarding(session, "client")
     service, writer, knowledge, _ = focused_service(
-        [], [f"Agachamento (Dia {day})" for day in "ABC"], scope="full_body"
+        [],
+        ["Agachamento (Dia A)", "Agachamento com apoio (Dia B)", "Afundo com apoio (Dia C)"],
+        scope="full_body",
     )
     responses = iter(
         [

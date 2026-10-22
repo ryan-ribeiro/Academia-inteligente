@@ -8,12 +8,12 @@ from fastapi import FastAPI
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from training_fixtures import AcceptingTrainingReviewer
 
 from app.database import Base, get_database_session
 from app.integrations.ai import (
     AiProviderError,
     AiTrainingGenerationResponse,
-    AiTrainingPlanAssessment,
     AiTrainingRequestFocus,
 )
 from app.main import create_app
@@ -34,7 +34,7 @@ from app.modules.training.schema import TrainingPlanVersionInput
 from app.modules.training.service import TrainingLifecycleService
 
 
-class FakeProvider:
+class FakeProvider(AcceptingTrainingReviewer):
     focus = AiTrainingRequestFocus(scope="unspecified", muscle_groups=[], goal=None)
 
     def analyze_training_request(self, context):
@@ -65,14 +65,6 @@ class FakeProvider:
                 }
             )
         return self.result
-
-    def assess_training(self, context):
-        return AiTrainingPlanAssessment(
-            sessions=[
-                {"label": label, "complete": True, "issues": []}
-                for label in context["training_schedule"]["session_labels"] or [""]
-            ]
-        )
 
 
 class RetryProvider(FakeProvider):

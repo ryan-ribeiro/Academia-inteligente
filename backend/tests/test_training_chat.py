@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
-from training_fixtures import instructor
+from training_fixtures import AcceptingTrainingReviewer, instructor
 
 from app.database import Base, get_database_session
 from app.integrations.ai import AiProviderError, AiTrainingChatResponse
@@ -35,7 +35,7 @@ from app.modules.training.schema import ManualPlanCreate, TrainingPlanItemInput
 from app.modules.training.service import TrainingLifecycleService
 
 
-class FakeProvider:
+class FakeProvider(AcceptingTrainingReviewer):
     def __init__(self, result: AiTrainingChatResponse | Exception) -> None:
         self.result = result
         self.calls = 0

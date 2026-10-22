@@ -315,7 +315,9 @@ def test_inflight_ai_response_cannot_overwrite_a_newer_instructor_edit(session):
 
     version = draft(session)
 
-    class Provider:
+    from training_fixtures import AcceptingTrainingReviewer
+
+    class Provider(AcceptingTrainingReviewer):
         def training_chat(self, context):
             TrainingLifecycleService().revise(
                 session,

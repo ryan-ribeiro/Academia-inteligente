@@ -3,6 +3,7 @@
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from http.client import RemoteDisconnected
 from io import BytesIO
 from threading import Barrier
 from urllib.error import URLError
@@ -49,7 +50,8 @@ def test_onboarding_logs_fast_path_rejection_fallback_and_cached_replay(database
     assert "ada@example.test" not in caplog.text and str(request_id) not in caplog.text
 
 
-def test_provider_payload_tokens_and_errors_are_not_logged(monkeypatch, caplog):
+@pytest.mark.parametrize("error_type", [URLError, RemoteDisconnected, ConnectionResetError])
+def test_provider_payload_tokens_and_errors_are_not_logged(monkeypatch, caplog, error_type):
     caplog.set_level(logging.INFO, logger="uvicorn.error.ai")
     secret = "DO_NOT_LOG_medical_answer_email_token"
     provider = OllamaOnboardingProvider(OllamaConfig("http://ollama:11434", "qwen3:8b", 120))
@@ -61,7 +63,7 @@ def test_provider_payload_tokens_and_errors_are_not_logged(monkeypatch, caplog):
     provider.training_chat({"current_user_message": secret, "Authorization": secret})
 
     def fail(request, timeout):
-        raise URLError(secret)
+        raise error_type(secret)
 
     monkeypatch.setattr(ai, "urlopen", fail)
     with pytest.raises(AiProviderError):

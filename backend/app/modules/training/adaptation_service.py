@@ -18,6 +18,10 @@ from app.modules.clients.models import Account, Client
 from app.modules.equipment.service import EquipmentService
 from app.modules.knowledge.service import KnowledgeCitationError, KnowledgeService
 from app.modules.onboarding.models import Onboarding
+from app.modules.training.completeness import (
+    IncompleteTrainingPlanError,
+    normalize_exercise_resource,
+)
 from app.modules.training.knowledge_query import retrieve_training_knowledge
 from app.modules.training.models import (
     TrainingAdaptationOperation,
@@ -33,6 +37,7 @@ from app.modules.training.schema import (
     TrainingPlanItemInput,
     TrainingPlanVersionInput,
 )
+from app.modules.training.selection import RedundantTrainingExerciseError, request_selected_training
 from app.modules.training.service import (
     ActiveTrainingProposalExistsError,
     InvalidTrainingContentError,
@@ -111,8 +116,37 @@ class TrainingAdaptationService:
             context["relevant_onboarding"],
         )
         context["knowledge"] = evidence.as_context()
-        response = self._retry(lambda: self._provider.generate_adaptation(context))
+
+        def write_adaptation(selected_context):
+            response = self._retry(lambda: self._provider.generate_adaptation(selected_context))
+            operations = [
+                AdaptationOperationInput.model_validate(value) for value in response.operations
+            ]
+            for operation in operations:
+                if operation.item is not None:
+                    operation.item = normalize_exercise_resource(operation.item)
+            return response.model_copy(
+                update={
+                    "operations": [operation.model_dump(mode="json") for operation in operations]
+                }
+            )
+
         try:
+            response = request_selected_training(
+                write_adaptation,
+                context,
+                assess=lambda review_context: self._retry(
+                    lambda: self._provider.assess_training(review_context)
+                ),
+                plan_builder=lambda response: self._apply_operations(
+                    session,
+                    base,
+                    [
+                        AdaptationOperationInput.model_validate(value)
+                        for value in response.operations
+                    ],
+                ),
+            )
             operations = [
                 AdaptationOperationInput.model_validate(value) for value in response.operations
             ]
@@ -124,7 +158,12 @@ class TrainingAdaptationService:
                     else None
                 ),
             )
-        except (ValidationError, KnowledgeCitationError) as error:
+        except (
+            ValidationError,
+            KnowledgeCitationError,
+            IncompleteTrainingPlanError,
+            RedundantTrainingExerciseError,
+        ) as error:
             raise AdaptationStateError from error
         # Match the lifecycle lock order after the external call, before equipment
         # locks/persistence. This avoids a model/client lock inversion at approval.
@@ -453,6 +492,44 @@ class TrainingAdaptationService:
     def _apply(
         session: Session, base: TrainingPlanVersion, proposal: TrainingAdaptationProposal
     ) -> TrainingPlanVersionInput:
+        operations = session.scalars(
+            select(TrainingAdaptationOperation)
+            .where(TrainingAdaptationOperation.proposal_id == proposal.id)
+            .order_by(TrainingAdaptationOperation.position)
+        )
+        return TrainingAdaptationService._apply_operations(
+            session,
+            base,
+            [
+                AdaptationOperationInput(
+                    operation_type=operation.operation_type,
+                    target_position=operation.target_position,
+                    item=(
+                        {
+                            "exercise_name": operation.exercise_name or "",
+                            "sets": operation.sets or 0,
+                            "repetitions": operation.repetitions or "",
+                            "load_guidance": operation.load_guidance or "",
+                            "rest_seconds": operation.rest_seconds
+                            if operation.rest_seconds is not None
+                            else -1,
+                            "equipment_requirement": operation.equipment_requirement,
+                            "equipment_model_id": operation.equipment_model_id,
+                            "is_existing_exercise": bool(operation.is_existing_exercise),
+                        }
+                        if operation.operation_type != "remove"
+                        else None
+                    ),
+                )
+                for operation in operations
+            ],
+        )
+
+    @staticmethod
+    def _apply_operations(
+        session: Session, base: TrainingPlanVersion, operations: list[AdaptationOperationInput]
+    ) -> TrainingPlanVersionInput:
+        """Build the exact resulting sheet for review without writing a proposal."""
         items = {
             item.position: TrainingPlanItemInput(
                 exercise_name=item.exercise_name,
@@ -467,23 +544,14 @@ class TrainingAdaptationService:
                 select(TrainingPlanItem).where(TrainingPlanItem.version_id == base.id)
             )
         }
-        operations = session.scalars(
-            select(TrainingAdaptationOperation)
-            .where(TrainingAdaptationOperation.proposal_id == proposal.id)
-            .order_by(TrainingAdaptationOperation.position)
-        )
         for operation in operations:
             if operation.operation_type == "remove":
                 items.pop(operation.target_position, None)
                 continue
-            item = TrainingPlanItemInput(
-                exercise_name=operation.exercise_name or "",
-                sets=operation.sets or 0,
-                repetitions=operation.repetitions or "",
-                load_guidance=operation.load_guidance or "",
-                rest_seconds=(operation.rest_seconds if operation.rest_seconds is not None else -1),
-                equipment_requirement=operation.equipment_requirement,
-                equipment_model_id=operation.equipment_model_id,
+            if operation.item is None:
+                raise AdaptationStateError
+            item = TrainingPlanItemInput.model_validate(
+                operation.item.model_dump(exclude={"is_existing_exercise"})
             )
             if operation.operation_type == "add":
                 items[max(items, default=0) + 1] = item

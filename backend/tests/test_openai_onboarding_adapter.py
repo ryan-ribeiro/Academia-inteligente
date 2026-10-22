@@ -156,6 +156,46 @@ def test_ollama_uses_configured_url_model_and_shared_contract(
     assert request_body["think"] is False
 
 
+@pytest.mark.parametrize(
+    "instructions,context,reasoning",
+    [
+        (ai._TRAINING_GENERATION, {}, True),
+        (ai._TRAINING_FULL_BODY_GENERATION, {}, True),
+        (ai._TRAINING_COMPLETENESS, {"proposed_plan": {}}, True),
+        (ai._TRAINING_ADAPTATION, {}, True),
+        (ai._TRAINING_CHAT, {"rules": {"may_update_ai_draft": True}}, True),
+        (ai._TRAINING_CHAT, {"rules": {"may_update_ai_draft": False}}, False),
+        (ai._INTERVIEW, {}, False),
+        (ai._EXTRACTION, {}, False),
+        (ai._TRAINING_REQUEST_FOCUS, {}, False),
+    ],
+)
+def test_local_reasoning_is_enabled_for_structured_training_only(instructions, context, reasoning):
+    provider = OllamaOnboardingProvider(OllamaConfig("http://ollama:11434", "existing-writer", 360))
+    body = json.loads(provider._request(context, instructions, {}).data)
+    assert body["think"] is reasoning
+    assert body["model"] == "existing-writer"
+
+
+def test_private_reasoning_is_not_returned_or_logged(monkeypatch, caplog):
+    import logging
+
+    secret = "PRIVATE_REASONING_WITH_CLIENT_CONTEXT"
+    caplog.set_level(logging.INFO, logger="uvicorn.error.ai")
+    payload = {
+        "message": {
+            "thinking": secret,
+            "content": json.dumps({"sessions": [{"label": "", "complete": True, "issues": []}]}),
+        }
+    }
+    monkeypatch.setattr(ai, "urlopen", lambda *a, **kw: BytesIO(json.dumps(payload).encode()))
+    provider = OllamaOnboardingProvider(OllamaConfig("http://ollama:11434", "existing-writer", 360))
+    result = provider.assess_training({"proposed_plan": {}})
+    assert result.sessions[0].complete
+    assert secret not in result.model_dump_json()
+    assert secret not in caplog.text
+
+
 def test_adapter_failures_are_controlled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         ai, "urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError())

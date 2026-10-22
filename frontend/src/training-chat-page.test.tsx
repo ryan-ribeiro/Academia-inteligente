@@ -17,6 +17,33 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test('replaces a legacy invalid draft in chat without presenting its exercise table or submission action', async () => {
+  const invalid = {
+    id: 'legacy-draft', plan_id: 'legacy-plan', version_number: 1, revision: 1, status: 'proposal', origin: 'ai',
+    name: 'Treino antigo', objective: 'Ganhar massa muscular', submitted_for_review_at: null,
+    preview: null, validation_error: 'Este rascunho contém exercícios inválidos e precisa ser gerado novamente.',
+    items: [{ position: 1, exercise_name: 'Peso corporal (Dia A)', sets: 2, repetitions: '3-5', load_guidance: 'Peso corporal', rest_seconds: 60 }],
+  }
+  const corrected = { ...invalid, revision: 2, validation_error: undefined,
+    items: [{ ...invalid.items[0], exercise_name: 'Agachamento com apoio' }],
+  }
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [], draft: invalid }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [] })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => corrected })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<TrainingChatPage accessToken="access-token" onSignOut={vi.fn()} />)
+  const regenerate = await screen.findByRole('button', { name: 'Gerar nova ficha' })
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(screen.queryByText('Peso corporal (Dia A)')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Enviar rascunho para minha revisão' })).not.toBeInTheDocument()
+  fireEvent.click(regenerate)
+  expect(await screen.findByText('Agachamento com apoio')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Enviar rascunho para minha revisão' })).toBeInTheDocument()
+  expect(fetchMock.mock.calls[3][0]).toBe('http://localhost:8000/training/initial-proposal')
+})
+
 test('shows the submitted message and processing feedback, then a visible validation error with retry', async () => {
   let finishResponse!: (value: unknown) => void
   const fetchMock = vi.fn()
@@ -254,6 +281,37 @@ test('answers an exercise question with its targeted sheet and sends that revisi
   expect(fetchMock.mock.calls[4][0]).toBe('http://localhost:8000/training/drafts/biceps-draft/submit')
   expect(JSON.parse(fetchMock.mock.calls[4][1].body)).toEqual({ expected_revision: 4 })
   expect(fetchMock.mock.calls.some(([url, init]) => url.includes('/adaptations') && init?.method === 'POST')).toBe(false)
+})
+
+test.each([false, true])('shows the instructor submission button after rebuilding the routine (existing draft: %s)', async (hasDraft) => {
+  const question = 'Refaça todo a minha ficha de treino do zero, para ganho de massa'
+  const preview = 'Treino A — Ganho de massa\nObjetivo: Ganho de massa muscular\nStatus: Aguardando revisão do instrutor\n\n| Ordem | Exercício | Séries | Repetições ou duração | Carga | Descanso |\n|---|---|---:|---|---|---:|\n| 1 | Remada | 3 | 8–12 | Carga confortável | 90 s |'
+  const draft = {
+    id: 'rebuilt-draft', plan_id: 'rebuilt-plan', revision: 4, version_number: 1,
+    status: 'proposal', origin: 'ai', name: 'Ganho de massa', objective: 'Ganho de massa muscular',
+    submitted_for_review_at: null, preview, items: [], citations: [], knowledge_status: 'insufficient_evidence',
+  }
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [], draft: hasDraft ? { ...draft, revision: 3, submitted_for_review_at: '2026-10-20T12:00:00Z' } : null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [] })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: { plan_id: 'current-plan' } }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [{ role: 'assistant', content: preview, created_at: '2026-10-20T15:00:00Z' }], draft }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ...draft, revision: 5, submitted_for_review_at: '2026-10-20T15:01:00Z' }) })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<TrainingChatPage accessToken="access-token" onSignOut={vi.fn()} />)
+  await screen.findByText('Seu espaço para tirar dúvidas')
+  expect(screen.queryByRole('button', { name: 'Enviar rascunho para minha revisão' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Escreva sua pergunta'), { target: { value: question } })
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+  const send = await screen.findByRole('button', { name: 'Enviar rascunho para minha revisão' })
+  expect(screen.getAllByRole('table', { name: 'Ficha de exercícios' })).toHaveLength(1)
+  expect(within(screen.getByRole('table', { name: 'Ficha de exercícios' })).getByText('Remada')).toBeInTheDocument()
+  expect(JSON.parse(fetchMock.mock.calls[3][1].body).message).toBe(question)
+  fireEvent.click(send)
+  expect(await screen.findByText(/Enviado para revisão do instrutor/)).toBeInTheDocument()
+  expect(fetchMock.mock.calls[4][0]).toBe('http://localhost:8000/training/drafts/rebuilt-draft/submit')
+  expect(JSON.parse(fetchMock.mock.calls[4][1].body)).toEqual({ expected_revision: 4 })
+  expect(fetchMock).toHaveBeenCalledTimes(5)
 })
 
 test('refreshes a superseded adaptation when a new targeted request replaces its draft', async () => {

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from test_training_generation import complete_onboarding, create_client, proposal
 from test_training_generation import session as session
 from test_training_rag import CHUNK_ID, FakeKnowledge
+from training_fixtures import AcceptingTrainingReviewer
 
 from app.integrations.ai import AiTrainingChatResponse
 from app.modules.training.chat_service import TrainingChatDraftUpdateError, TrainingChatService
@@ -89,7 +90,7 @@ def test_distinct_complementary_exercises_are_not_collapsed():
     validate_exercise_selection(sheet([exercise("Rosca direta"), exercise("Rosca martelo")]))
 
 
-class SelectingWriter:
+class SelectingWriter(AcceptingTrainingReviewer):
     def __init__(self, flow, outcome):
         self.flow = flow
         self.outcome = outcome

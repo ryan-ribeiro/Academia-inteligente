@@ -7,6 +7,7 @@ import os
 from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
+from http.client import HTTPException as HttpProtocolError
 from typing import Annotated, Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -24,10 +25,12 @@ class TrainingGenerationProvider(Protocol):
 
 class TrainingChatProvider(Protocol):
     def training_chat(self, context: dict[str, object]) -> "AiTrainingChatResponse": ...
+    def assess_training(self, context: dict[str, object]) -> "AiTrainingPlanAssessment": ...
 
 
 class TrainingAdaptationProvider(Protocol):
     def generate_adaptation(self, context: dict[str, object]) -> "AiTrainingAdaptationResponse": ...
+    def assess_training(self, context: dict[str, object]) -> "AiTrainingPlanAssessment": ...
 
 
 class AiProviderError(Exception):
@@ -80,6 +83,13 @@ class AiTrainingGenerationResponse(AiKnowledgeResponse):
     plan: dict[str, Any]
 
 
+class AiTrainingRepetitionRecommendation(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    chunk_id: str = Field(min_length=1, max_length=200)
+    quote: str = Field(min_length=1, max_length=2000)
+    applicability_reason: str = Field(min_length=1, max_length=600)
+
+
 class AiTrainingSessionAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: Literal["", "A", "B", "C", "D", "E", "F", "G"]
@@ -94,9 +104,9 @@ class AiTrainingSessionAssessment(BaseModel):
             "missing_trunk",
             "ambiguous_exercise",
             "restriction_not_respected",
-            "repeated_session",
         ]
     ] = Field(max_length=8)
+    repetition_recommendation: AiTrainingRepetitionRecommendation | None = None
 
 
 class AiTrainingPlanAssessment(BaseModel):
@@ -175,6 +185,7 @@ _TRAINING_EQUIPMENT = (
     "de active_equipment_models: informe UUID exato em equipment_model_id e nome "
     "em equipment_requirement. Em exercícios livres sem dependência de máquina, ambos "
     "são null; mencione halteres, barras ou peso corporal em load_guidance quando pertinente. "
+    "Esses recursos isolados nunca são exercise_name: identifique o movimento realizado. "
     "Nunca preencha equipment_requirement sem um equipment_model_id válido. Se não houver "
     "modelo aplicável no catálogo, escolha um exercício livre; não prescreva máquina "
     "inexistente omitindo seu vínculo. Preserve as referências "
@@ -202,6 +213,10 @@ _TRAINING_REQUEST_FOCUS = (
     "Em goal registre o objetivo explicitamente pedido, "
     "ou null quando ausente. scope=targeted quando houver músculos ou regiões específicos; "
     "scope=full_body somente quando o cliente pedir corpo inteiro; caso contrário unspecified. "
+    "Respeite focus_constraints.allowed_scopes. 'Refaça toda a minha ficha do zero para "
+    "ganho de massa' pede uma nova ficha, sem especificar músculos ou divisão: retorne "
+    "scope=unspecified, muscle_groups=[] e goal='ganho de massa'. Toda a ficha não significa "
+    "corpo inteiro. Não invente grupos para preencher uma ficha sem foco explícito. "
     "Para scope=full_body, retorne muscle_groups=[]: corpo inteiro ou todo o corpo "
     "descrevem o escopo, não são nomes musculares a copiar ou abreviar. Não enumere "
     "músculos implícitos num pedido de corpo inteiro. "
@@ -274,14 +289,31 @@ _TRAINING_FULL_BODY_GENERATION = (
     "lista somente as fichas que devem ser retornadas agora. Cada ficha é um treino completo. "
     "Em CADA ficha cubra movimentos de empurrar e puxar para superiores, movimentos "
     "dominantes de joelho e quadril para inferiores e trabalho de tronco. "
-    "Exemplos de nomes reconhecíveis por movimento: empurrar — flexão de braços; "
-    "puxar — remada curvada; joelho — agachamento; quadril — ponte de quadril; "
-    "tronco — prancha. São exemplos de identificação, não uma lista obrigatória: "
-    "selecione alternativas aplicáveis ao próprio cliente e às fontes. Escolha exercícios "
-    "previous_sessions contém fichas já geradas da mesma rotina. Planeje a ficha atual "
-    "com alternativas complementares ou prescrições pertinentes ao dia, preservando a "
-    "abrangência; as fichas A, B e C não devem ser cópias integrais umas das outras. "
-    "Exercícios individuais podem reaparecer, sem inventar superioridade pela variedade. "
+    "Use nomes precisos de exercícios reconhecidos e alternativas aplicáveis ao cliente "
+    "e às fontes. Peso corporal, halteres e barra são recursos, nunca exercícios isolados. "
+    "Exemplos de nomes específicos: flexão de braços, desenvolvimento com halteres, "
+    "remada curvada, remada unilateral, agachamento, afundo, ponte de quadril, "
+    "levantamento terra romeno, prancha e prancha lateral. Não copie essa lista: escolha "
+    "somente alternativas aplicáveis e complementares para a ficha atual. "
+    "Planeje A, B e C como sessões distintas da mesma rotina. "
+    "Exemplos de alternativas por função: empurrar — flexão de braços, flexão inclinada "
+    "ou supino com halteres; puxar — remada curvada, remada unilateral com halter ou "
+    "remada com elástico; joelho — agachamento, afundo ou subida no degrau; quadril — "
+    "ponte de quadril ou levantamento terra romeno com halteres; tronco — prancha, "
+    "prancha lateral ou dead bug. São alternativas de identificação, não uma ficha "
+    "obrigatória nem uma lista para copiar inteira. Escolha conforme fontes e restrições. "
+    "Não repita o primeiro exemplo de cada função em todos os dias. "
+    "previous_sessions contém as fichas anteriores: compare a seleção de exercícios "
+    "e escolha para o dia atual uma composição diferente de CADA ficha anterior. "
+    "Alguns exercícios e prescrições podem se repetir entre dias; não copie a seleção "
+    "inteira de um dia anterior, exceto quando um trecho de knowledge.chunks recomendar "
+    "explicitamente repetir a mesma ficha entre dias e isso for aplicável ao cliente. "
+    "Orientações gerais de frequência semanal ou ausência de benefício da variedade "
+    "não recomendam fichas idênticas. Cite o trecho que fundamenta essa exceção. "
+    "Trocar somente a ordem, as séries, repetições, carga, "
+    "descanso ou a grafia não torna uma ficha distinta. Varie exercícios reais "
+    "preservando a cobertura de corpo inteiro e as restrições, sem inventar "
+    "superioridade pela variedade nem renomear o mesmo exercício. "
     "Escolha exercícios "
     "complementares e reconhecíveis que atendam toda essa abrangência. "
     "A quantidade decorre da cobertura, das "
@@ -304,16 +336,43 @@ _TRAINING_FULL_BODY_GENERATION = (
     + _TRAINING_SELECTION
 )
 _TRAINING_COMPLETENESS = (
-    "Classifique a abrangência dos exercícios REAIS de proposed_plan. Retorne só JSON. "
+    "Revise a validade dos exercícios REAIS de proposed_plan em QUALQUER ficha, "
+    "seja de corpo inteiro, localizada ou sem foco explicitado. Retorne só JSON. "
     "Revise SOMENTE training_schedule.session_labels desta chamada, mesmo que o pedido "
     "original descreva outros dias a gerar depois. Leia todos os itens da ficha atual. "
-    "Empurrar e puxar de superiores, movimentos de joelho e quadril de inferiores e tronco "
-    "devem estar contemplados, respeitando as restrições de completed_onboarding. "
+    "Todo item deve identificar um movimento de exercício reconhecível, compatível com "
+    "o pedido, o objetivo e as restrições de completed_onboarding ou relevant_onboarding, "
+    "incluindo relatos do cliente na conversa. Verifique também séries, repetições ou "
+    "duração, carga e descanso; não invente cargas individuais nem inferências clínicas. "
+    "Recursos, equipamentos, grupos musculares ou termos vagos isolados não são exercícios. "
+    "Para movimento inexistente, não identificável ou descrição ambígua, marque "
+    "ambiguous_exercise e complete=false, mesmo que o título pareça adequado. "
+    "SOMENTE quando training_focus.scope=full_body ou o pedido explicitamente exigir "
+    "corpo inteiro, empurrar e puxar de superiores, movimentos de joelho e quadril de "
+    "inferiores e tronco devem estar contemplados. Em treino localizado avalie apenas "
+    "o foco solicitado; não exija outros grupos nem marque missing por não ser corpo inteiro. "
+    "Em alterações, considere a ficha existente e a mudança solicitada sem ampliar o foco. "
     "Exemplos de classificação: flexão de braços contempla empurrar; remada contempla "
     "puxar; agachamento contempla joelho; ponte de quadril contempla quadril; prancha "
     "contempla tronco. Considere também outras alternativas reconhecidas equivalentes. "
-    "Se essas funções estão contempladas com exercícios aplicáveis ao cliente, retorne "
-    "complete=true e issues=[]. Somente funções realmente AUSENTES recebem códigos missing. "
+    "Se a abrangência pedida está contemplada com exercícios válidos e aplicáveis, retorne "
+    "complete=true e issues=[]. Somente funções exigidas pelo foco e realmente AUSENTES "
+    "recebem códigos missing. "
+    "O título corpo inteiro não prova cobertura. Peso corporal, halteres e barra isolados "
+    "não identificam exercícios; flexão de perna é ambíguo. Nesses casos marque "
+    "ambiguous_exercise; funções ausentes só quando exigidas pelo foco. Não suponha "
+    "que existe remada ou trabalho "
+    "de tronco quando a ficha não os identifica. "
+    "Repetir exercícios ou prescrições de outros dias não é uma lacuna; avalie a "
+    "abrangência e as restrições da ficha atual independentemente. "
+    "Por padrão, repetition_recommendation=null. Se a seleção inteira da ficha atual "
+    "copiar uma ficha de previous_sessions, só preencha repetition_recommendation se "
+    "um trecho de knowledge.chunks recomendar EXPLICITAMENTE repetir a mesma ficha "
+    "entre dias e a recomendação se aplicar ao objetivo, experiência e restrições "
+    "do cliente. Informe chunk_id, quote literal de uma frase completa da recomendação "
+    "e applicability_reason em português. Uma recomendação geral de treinar duas ou "
+    "três vezes por semana, consistência ou ausência de superioridade da variedade "
+    "não autoriza fichas idênticas. Sem recomendação específica, mantenha null. "
     "Para ficha ausente, exercício ambíguo ou restrição desrespeitada, complete=false com "
     "os códigos correspondentes. Restrições prevalecem: considere adaptações e alternativas, "
     "sem exigir exercícios contraindicados, diagnosticar ou prescrever tratamento. "
@@ -382,7 +441,9 @@ _TRAINING_ADAPTATION = (
         "modelo utilizável fornecido no contexto: informe o UUID exato em "
         "equipment_model_id e uma descrição humana em equipment_requirement. Não "
         "invente, altere ou omita esse UUID. Para exercício sem equipamento, use "
-        "equipment_requirement e equipment_model_id como null."
+        "equipment_requirement e equipment_model_id como null. Se houver selection_correction, "
+        "corrija as operações para resolver os problemas da ficha resultante rejeitada. "
+        "Preserve itens não afetados e retorne somente as operações no esquema solicitado."
     )
     + _TRAINING_EQUIPMENT
     + _TRAINING_KNOWLEDGE
@@ -459,15 +520,20 @@ def _knowledge_schema_fields() -> dict[str, object]:
     }
 
 
-def _training_focus_schema() -> dict[str, object]:
+def _training_focus_schema(context: dict[str, object]) -> dict[str, object]:
+    scopes = ["targeted", "full_body", "unspecified"]
+    constraints = context.get("focus_constraints", {})
+    allowed = constraints.get("allowed_scopes") if isinstance(constraints, dict) else None
+    if isinstance(allowed, list) and allowed and all(scope in scopes for scope in allowed):
+        scopes = allowed
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "scope": {"type": "string", "enum": ["targeted", "full_body", "unspecified"]},
+            "scope": {"type": "string", "enum": scopes},
             "muscle_groups": {
                 "type": "array",
-                "maxItems": 20,
+                "maxItems": 0 if scopes == ["full_body"] else 20,
                 "items": {"type": "string", "minLength": 1, "maxLength": 200},
             },
             "goal": {"type": ["string", "null"], "maxLength": 300},
@@ -631,11 +697,45 @@ class _Provider:
         # Domain validation still rejects any provider that ignores the schema.
         schema = deepcopy(schema)
         properties = schema.get("properties", {})
+        if type_ is AiTrainingGenerationResponse:
+            items = properties["plan"]["properties"]["items"]
+            free_item = deepcopy(items["items"])
+            free_item["properties"]["equipment_requirement"] = {"type": "null"}
+            free_item["properties"]["equipment_model_id"] = {"type": "null"}
+            identifiers = list(
+                dict.fromkeys(model["id"] for model in context.get("active_equipment_models", []))
+            )
+            if identifiers:
+                machine_item = deepcopy(items["items"])
+                machine_item["properties"]["equipment_requirement"] = {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                }
+                machine_item["properties"]["equipment_model_id"] = {
+                    "type": "string",
+                    "format": "uuid",
+                    "enum": identifiers,
+                }
+                items["items"] = {"anyOf": [free_item, machine_item]}
+            else:
+                items["items"] = free_item
         if type_ is AiTrainingPlanAssessment:
             labels = context.get("training_schedule", {}).get("session_labels", []) or [""]
             properties["sessions"]["minItems"] = len(labels)
             properties["sessions"]["maxItems"] = len(labels)
             schema["$defs"]["AiTrainingSessionAssessment"]["properties"]["label"]["enum"] = labels
+            session_schema = schema["$defs"]["AiTrainingSessionAssessment"]
+            session_schema["required"].append("repetition_recommendation")
+            identifiers = [
+                chunk["chunk_id"] for chunk in context.get("knowledge", {}).get("chunks", [])[:6]
+            ]
+            if identifiers and context.get("previous_sessions"):
+                schema["$defs"]["AiTrainingRepetitionRecommendation"]["properties"]["chunk_id"][
+                    "enum"
+                ] = identifiers
+            else:
+                session_schema["properties"]["repetition_recommendation"] = {"type": "null"}
         if "citations" in properties:
             identifiers = list(
                 dict.fromkeys(
@@ -663,7 +763,7 @@ class _Provider:
                 "provider_server" if error.code >= 500 or error.code == 429 else "configuration",
                 retryable=error.code >= 500 or error.code == 429,
             ) from None
-        except (TimeoutError, URLError):
+        except (TimeoutError, URLError, ConnectionError, HttpProtocolError):
             raise AiProviderError("timeout_or_network", retryable=True) from None
         except (json.JSONDecodeError, ValidationError, ValueError, TypeError):
             raise AiProviderError("malformed_structured_output", retryable=True) from None
@@ -678,7 +778,10 @@ class _Provider:
 
     def analyze_training_request(self, context: dict[str, object]) -> AiTrainingRequestFocus:
         return self._call(
-            context, _TRAINING_REQUEST_FOCUS, _training_focus_schema(), AiTrainingRequestFocus
+            context,
+            _TRAINING_REQUEST_FOCUS,
+            _training_focus_schema(context),
+            AiTrainingRequestFocus,
         )  # type: ignore[return-value]
 
     def generate_training(self, context: dict[str, object]) -> AiTrainingGenerationResponse:
@@ -759,6 +862,15 @@ class OllamaOnboardingProvider(_Provider):
     def _request(
         self, context: dict[str, object], instructions: str, schema: dict[str, object]
     ) -> Request:
+        structured_training = instructions in (
+            _TRAINING_GENERATION,
+            _TRAINING_FULL_BODY_GENERATION,
+            _TRAINING_COMPLETENESS,
+            _TRAINING_ADAPTATION,
+        ) or (
+            instructions == _TRAINING_CHAT
+            and context.get("rules", {}).get("may_update_ai_draft", False)
+        )
         body = {
             "model": self._config.model,
             "messages": [
@@ -767,13 +879,17 @@ class OllamaOnboardingProvider(_Provider):
             ],
             "stream": False,
             "format": schema,
-            "think": False,
+            # Use reasoning for structured plans; preserve the interview/plain-chat mode.
+            "think": structured_training,
         }
         if "knowledge" in context or "training_request" in context:
             # Six passages plus health/equipment context must fit without the
             # local server's default 4k window dropping the requested focus.
             body["options"] = {"num_ctx": 16384}
-        if "proposed_plan" in context or (context.get("training_focus") or {}).get("scope") == "full_body":
+        if (
+            "proposed_plan" in context
+            or (context.get("training_focus") or {}).get("scope") == "full_body"
+        ):
             body.setdefault("options", {})["temperature"] = 0
         return Request(
             f"{self._config.base_url.rstrip('/')}/api/chat",

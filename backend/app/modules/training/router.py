@@ -233,7 +233,8 @@ def adaptation_error(error: Exception) -> HTTPException:
 
 
 def version_response(session: Session, version: TrainingPlanVersion) -> dict[str, object]:
-    return {
+    invalid_draft = version.status == "proposal" and service.has_invalid_exercises(session, version)
+    response = {
         "id": str(version.id),
         "plan_id": str(version.plan_id),
         "version_number": version.version_number,
@@ -249,7 +250,9 @@ def version_response(session: Session, version: TrainingPlanVersion) -> dict[str
         "submitted_for_review_at": (
             version.submitted_for_review_at.isoformat() if version.submitted_for_review_at else None
         ),
-        "preview": proposal_preview(session, version) if version.status == "proposal" else None,
+        "preview": proposal_preview(session, version)
+        if version.status == "proposal" and not invalid_draft
+        else None,
         "citations": version.citations,
         "knowledge_status": version.knowledge_status,
         "knowledge_limitations": version.knowledge_limitations,
@@ -273,6 +276,11 @@ def version_response(session: Session, version: TrainingPlanVersion) -> dict[str
             )
         ],
     }
+    if invalid_draft:
+        response["validation_error"] = (
+            "Este rascunho contém exercícios inválidos e precisa ser gerado novamente."
+        )
+    return response
 
 
 def lifecycle_error(error: Exception) -> HTTPException:
@@ -386,6 +394,7 @@ def submit_training_draft(
         TrainingVersionNotFoundError,
         ConcurrentTrainingUpdateError,
         InvalidTrainingTransitionError,
+        InvalidTrainingContentError,
     ) as error:
         raise lifecycle_error(error) from None
 

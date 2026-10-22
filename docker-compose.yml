@@ -82,6 +82,11 @@ services:
     command: ["python", "-m", "app.modules.knowledge.startup"]
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SEED_DEMO_ACCOUNTS: ${SEED_DEMO_ACCOUNTS:-true}
+      DEMO_ACCOUNT_PASSWORD: ${DEMO_ACCOUNT_PASSWORD:-123}
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_REALM: academia
+      KEYCLOAK_PROVISIONING_CLIENT_SECRET: ${KEYCLOAK_PROVISIONING_CLIENT_SECRET}
       KNOWLEDGE_OLLAMA_BASE_URL: http://knowledge-ollama:11434
       KNOWLEDGE_EMBEDDING_TIMEOUT_SECONDS: ${KNOWLEDGE_EMBEDDING_TIMEOUT_SECONDS:-120}
     volumes:
@@ -89,6 +94,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
       knowledge-model:
         condition: service_completed_successfully
     restart: "no"
@@ -172,7 +179,7 @@ services:
               capabilities: [gpu]
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_LLM_LIBRARY: cuda_v12
+      OLLAMA_LLM_LIBRARY: ${OLLAMA_LLM_LIBRARY:-cuda_v13}
       CUDA_VISIBLE_DEVICES: "0"
       OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
       OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-f16}

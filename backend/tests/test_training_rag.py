@@ -272,6 +272,50 @@ def test_writing_adapters_keep_models_and_send_untrusted_evidence_contract(monke
 
 
 @pytest.mark.parametrize("kind", ["openai", "ollama"])
+def test_generation_decoding_pairs_equipment_and_scopes_ids_to_each_catalogue(monkeypatch, kind):
+    captured = []
+
+    def respond(request, timeout):
+        captured.append(json.loads(request.data))
+        payload = proposal().model_dump_json()
+        response = (
+            {"output": [{"content": [{"type": "output_text", "text": payload}]}]}
+            if kind == "openai"
+            else {"message": {"content": payload}}
+        )
+        return BytesIO(json.dumps(response).encode())
+
+    monkeypatch.setattr(ai, "urlopen", respond)
+    provider = (
+        OpenAiResponsesOnboardingProvider(OpenAiConfig("test-key", "existing-writer", 10))
+        if kind == "openai"
+        else OllamaOnboardingProvider(OllamaConfig("http://ollama:11434", "existing-writer", 120))
+    )
+    model_id = str(uuid4())
+    for catalogue in ([], [{"id": model_id, "name": "Modelo utilizável"}], []):
+        provider.generate_training({"active_equipment_models": catalogue})
+        body = captured[-1]
+        schema = body["text"]["format"]["schema"] if kind == "openai" else body["format"]
+        item = schema["properties"]["plan"]["properties"]["items"]["items"]
+        free = item["anyOf"][0] if catalogue else item
+        assert free["properties"]["equipment_requirement"] == {"type": "null"}
+        assert free["properties"]["equipment_model_id"] == {"type": "null"}
+        if catalogue:
+            assert len(item["anyOf"]) == 2
+            machine = item["anyOf"][1]
+            assert machine["properties"]["equipment_model_id"] == {
+                "type": "string",
+                "format": "uuid",
+                "enum": [model_id],
+            }
+            assert machine["properties"]["equipment_requirement"]["type"] == "string"
+            assert machine["properties"]["equipment_requirement"]["minLength"] == 1
+            assert machine["required"] == free["required"]
+        else:
+            assert "anyOf" not in item
+
+
+@pytest.mark.parametrize("kind", ["openai", "ollama"])
 def test_chat_decoding_is_scoped_to_each_turn_and_explicit_draft_edit_authority(monkeypatch, kind):
     captured = []
     payload = AiTrainingChatResponse(assistant_message="Resposta de teste.").model_dump_json()
@@ -428,6 +472,11 @@ FULL_BODY_REQUEST = (
     "de modo a ser a melhor sugestão possível. Ao final, essa sugestão será aprovada "
     "pelo instrutor."
 )
+FULL_BODY_PUSH = {
+    "A": "Flexão com apoio",
+    "B": "Flexão de braços na parede",
+    "C": "Flexão inclinada no banco",
+}
 
 
 @pytest.mark.parametrize("has_current", [False, True])
@@ -444,7 +493,12 @@ def test_full_body_request_uses_own_request_evidence_and_returns_complete_saved_
         name="Corpo inteiro — 3 dias por semana",
         objective="Ganho de massa muscular",
         items=[
-            {**proposal().plan["items"][0], "exercise_name": f"{name} (Dia {day})"}
+            {
+                **proposal().plan["items"][0],
+                "exercise_name": (
+                    f"{FULL_BODY_PUSH[day] if name.startswith('Flexão') else name} (Dia {day})"
+                ),
+            }
             for day in "ABC"
             for name in names
         ],
@@ -478,7 +532,13 @@ def test_full_body_request_uses_own_request_evidence_and_returns_complete_saved_
         "| Ordem | Exercício | Séries | Repetições ou duração | Carga | Descanso |" in reply.content
     )
     for position, name in enumerate(names, 1):
-        assert reply.content.count(f"| {position} | {name} |") == 3
+        if name.startswith("Flexão"):
+            assert all(
+                reply.content.count(f"| {position} | {push} |") == 1
+                for push in FULL_BODY_PUSH.values()
+            )
+        else:
+            assert reply.content.count(f"| {position} | {name} |") == 3
     assert all(f"Treino {day} —" in reply.content for day in "ABC")
     assert len(version_response(session, draft)["items"]) == 15
     assert reply.citations == draft.citations and reply.knowledge_status == "supported"
@@ -531,7 +591,12 @@ def test_full_body_chat_api_submits_the_displayed_draft_to_instructor_pending(
     writer = GenerationProvider(
         proposal(
             items=[
-                {**proposal().plan["items"][0], "exercise_name": f"{name} (Dia {day})"}
+                {
+                    **proposal().plan["items"][0],
+                    "exercise_name": (
+                        f"{FULL_BODY_PUSH[day] if name.startswith('Flexão') else name} (Dia {day})"
+                    ),
+                }
                 for day in "ABC"
                 for name in names
             ]

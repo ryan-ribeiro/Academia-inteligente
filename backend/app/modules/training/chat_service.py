@@ -26,6 +26,7 @@ from app.modules.equipment.service import EquipmentService
 from app.modules.knowledge.service import KnowledgeCitationError, KnowledgeResult, KnowledgeService
 from app.modules.onboarding.draft_service import OnboardingDraftService
 from app.modules.onboarding.models import Onboarding
+from app.modules.training.completeness import IncompleteTrainingPlanError
 from app.modules.training.generation_service import (
     CompletedOnboardingRequiredError,
     InitialTrainingGenerationService,
@@ -187,6 +188,9 @@ class TrainingChatService:
                             ),
                             context,
                             plan_field="draft_update",
+                            assess=lambda review_context: self._retry(
+                                lambda: self._provider.assess_training(review_context)
+                            ),
                         )
                     else:
                         response = self._retry(lambda: self._provider.training_chat(context))
@@ -200,10 +204,13 @@ class TrainingChatService:
                     KnowledgeCitationError,
                     ValidationError,
                     RedundantTrainingExerciseError,
+                    IncompleteTrainingPlanError,
                 ) as error:
                     record_turn(
                         reason=(
-                            "invalid_training_schema"
+                            "incomplete_training_plan"
+                            if isinstance(error, IncompleteTrainingPlanError)
+                            else "invalid_training_schema"
                             if isinstance(error, ValidationError)
                             else "invalid_training_citations"
                             if isinstance(error, KnowledgeCitationError)
@@ -344,7 +351,9 @@ class TrainingChatService:
             if draft
             else [],
             "editable_training_draft": draft_content,
-            "relevant_onboarding": self._onboarding_context(session, client_id, health_context),
+            "relevant_onboarding": self._onboarding_context(
+                session, client_id, "saude" if may_update else health_context
+            ),
             "onboarding_completed": OnboardingDraftService().has_valid_completed_onboarding(
                 session, client_id
             ),
@@ -371,16 +380,24 @@ class TrainingChatService:
             return None
         record_turn(path="direct")
         existing = self._lifecycle.find_proposal(session, client_id=client_id)
-        detailed = exercise_request or bool(
-            re.search(
-                r"\b(?:para|objetivo|muscular|dias|corpo|somente|apenas)\b",
-                self._normalized(message),
+        detailed = (
+            exercise_request
+            or self._requests_plan_rebuild(message)
+            or bool(
+                re.search(
+                    r"\b(?:para|objetivo|muscular|dias|corpo|somente|apenas)\b",
+                    self._normalized(message),
+                )
             )
         )
         # Request UUIDs handle transport retries in submit_for_subject. Repeated
         # text can be a fresh instruction or follow a failed generation, so it
         # cannot establish that the saved draft fulfills the current request.
-        if existing is not None and not detailed:
+        if (
+            existing is not None
+            and not detailed
+            and not self._lifecycle.has_invalid_exercises(session, existing)
+        ):
             return (
                 "Seu rascunho já está disponível em Meu treino. "
                 "Você pode pedir uma alteração nesse rascunho. Quando estiver satisfeito, "
@@ -477,6 +494,18 @@ class TrainingChatService:
         )
 
     @classmethod
+    def _requests_plan_rebuild(cls, message: str) -> bool:
+        # Rebuilding is itself a new instruction, even without a goal or other
+        # details. Do not return an unchanged, possibly already-submitted draft.
+        return cls._requests_initial_plan(message, []) and bool(
+            re.search(
+                r"\b(?:refaca|refazer|remonte|remontar|recrie|recriar|"
+                r"reformule|reformular|do zero)\b",
+                cls._normalized(message),
+            )
+        )
+
+    @classmethod
     def _requests_initial_plan(cls, message: str, history: list[dict]) -> bool:
         text = cls._normalized(message).strip()
         # Full matches intentionally exclude conditions, negation, health
@@ -499,16 +528,18 @@ class TrainingChatService:
         # still explicit generation requests, not generic chat about an old exercise.
         if re.search(
             r"\b(?:se|caso|desde que|antes|depois|quando)\b|"
-            r"\bnao (?:gere|crie|monte|prepare|agora)\b",
+            r"\bnao (?:quero|gere|crie|monte|prepare|refaca|refazer|remonte|"
+            r"remontar|recrie|recriar|reformule|reformular|agora)\b",
             text,
         ):
             return False
         return bool(
             re.match(
-                r"(?:por favor[, ]+)?(?:quero que (?:voce )?|"
-                r"(?:pode|poderia|quero|gostaria de) )?"
-                r"(?:prepare|preparar|gere|gerar|monte|montar|crie|criar|elabore|elaborar) "
-                r"(?:(?:um|uma|o|meu|novo|primeiro|seu) )*"
+                r"(?:por favor[, ]+)?(?:(?:quero|preciso|gostaria) que (?:voce )?|"
+                r"(?:voce )?(?:pode|poderia|quero|gostaria de) )?"
+                r"(?:prepare|preparar|gere|gerar|monte|montar|crie|criar|elabore|elaborar|"
+                r"refaca|refazer|remonte|remontar|recrie|recriar|reformule|reformular) "
+                r"(?:(?:um|uma|o|a|meu|minha|novo|nova|primeiro|primeira|seu|sua|todo|toda) )*"
                 r"(?:sugestao de treino|plano(?: de treino)?|treino|"
                 r"rascunho(?: de treino)?|ficha)\b",
                 text,

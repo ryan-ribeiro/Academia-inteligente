@@ -28,7 +28,8 @@ export type TrainingPlanDraft = Omit<CurrentTrainingPlan, 'status'> & {
   id: string
   revision: number
   submitted_for_review_at: string | null
-  preview?: string
+  preview?: string | null
+  validation_error?: string | null
   status: 'proposal'
   origin: 'ai' | 'instructor'
 }
@@ -42,6 +43,7 @@ export async function submitTrainingDraft(accessToken: string, id: string, revis
   if (response.status === 401) throw new Error('Sua sessão expirou. Entre novamente para continuar.')
   if (response.status === 403 || response.status === 404) throw new Error('Você não tem permissão para enviar este rascunho.')
   if (response.status === 409) throw new Error('O rascunho mudou. Recarregue a página e confira a versão atual antes de enviar.')
+  if (response.status === 422) throw new Error('Este rascunho contém exercícios inválidos. Gere uma nova ficha antes de enviar para revisão.')
   if (!response.ok) throw new Error('Não foi possível enviar o treino para revisão. Tente novamente.')
   return response.json() as Promise<TrainingPlanDraft>
 }
@@ -53,7 +55,13 @@ export async function createInitialTrainingProposal(accessToken: string): Promis
   })
   if (response.status === 401) throw new Error('Sua sessão expirou. Entre novamente para continuar.')
   if (response.status === 403) throw new Error('Você não tem permissão para gerar seu rascunho de treino.')
-  if (response.status === 422) throw new Error('Conclua seu onboarding antes de gerar seu rascunho de treino.')
+  if (response.status === 502) throw new Error('A ficha gerada não passou pela validação automática. Tente gerar novamente; seu treino atual não foi alterado.')
+  if (response.status === 422) {
+    let detail: unknown
+    try { detail = (await response.json() as { detail?: unknown }).detail } catch { /* Use the validation message when no structured detail is available. */ }
+    if (detail === 'Completed onboarding is required before generating a training proposal') throw new Error('Conclua seu onboarding antes de gerar seu rascunho de treino.')
+    throw new Error('A ficha gerada não passou pela validação automática. Tente gerar novamente; seu treino atual não foi alterado.')
+  }
   if (response.status === 503) throw new Error('A geração por IA está indisponível no momento. Tente novamente.')
   if (!response.ok) throw new Error('Não foi possível gerar seu rascunho de treino. Tente novamente.')
   return response.json() as Promise<TrainingPlanDraft>

@@ -133,6 +133,23 @@ initial administrator is realm-bootstrapped from environment configuration,
 and employees are provisioned by the authorized RF-07/RF-08 administrative
 flow approved under EXT-DEC-INST-01.
 
+**Local demo initialization amendment (RF-04/RF-05, 2026-10-21):** the local
+Docker Compose startup automatically creates `admin@academia.test`,
+`cliente@academia.test`, `funcionario@academia.test`, `atendente@academia.test`,
+and `instrutor@academia.test`, with the requested initial demo password `123`.
+Their roles are respectively `admin`, `client`, `employee`,
+`employee` + `attendant`, and `employee` + `instructor`. This is a local-only
+exception to administrative provisioning, controlled by `SEED_DEMO_ACCOUNTS`
+and `DEMO_ACCOUNT_PASSWORD`; production does not enable it. Credentials remain
+exclusively in Keycloak. Client and instructor identities include their required
+local domain records and synthetic person data. Generic employee and attendant
+identities receive no new operational capabilities or instructor registration.
+Acceptance: initialization creates all five usable linked identities, resumes
+interrupted provisioning without duplicating users, preserves completed accounts'
+passwords/data/activation on restart, refuses to take over unrelated identities,
+and does nothing when demo initialization is disabled. This does not enable public
+registration or bypass authorization, onboarding, or biometric access gates.
+
 ### 2.2 Approved authentication and identity model
 
 - `account.id` and `client.id` are independent application-generated UUIDs.
@@ -523,8 +540,24 @@ Generate initial guidance/a training plan using the information provided during 
   and evidence. Persistent gaps or review-provider failure preserve the saved
   draft and approved plan. Client and instructor previews show each day's own
   ordered exercise table; repeating an exercise in explicitly different days
-  is allowed, including the same prescription. Instructor approval remains
-  necessary.
+  is allowed, including the same prescription. Following the owner's
+  2026-10-20 clarification, A/B/C must have distinct exercise selections rather
+  than copying an entire sheet, unless the retrieved, reviewed evidence
+  explicitly recommends repeating the same sheet across days and the existing
+  AI review confirms applicability to the client's goal, experience and
+  restrictions. This exception requires a literal recommendation quote from a
+  currently retrieved passage included in the final canonical citations;
+  generic frequency guidance or an unsupported writer claim is insufficient.
+  Unavailable, outdated or insufficient retrieved evidence cannot authorize
+  repetition. A valid specific recommendation does not upgrade a conservative
+  overall evidence status or establish superiority of the routine.
+  Changing only order, spelling, sets, repetitions, load guidance or rest does
+  not make a day distinct. Compare each
+  session with all previously generated days, correct a repeated selection once
+  with the same request and evidence, and preserve saved content if correction
+  fails. Individual exercises may still recur; variation must retain full-body
+  coverage and client restrictions without claims of clinical superiority.
+  Instructor approval remains necessary.
 
 **Consolidation note:** Apply RN-12 through RN-19 and RN-29 through RN-31. DEC-07 resolves the current proposal/review flow: AI may create only a structured proposal, and an instructor must review it before approval or activation.
 
@@ -739,11 +772,83 @@ The existing flat item contract displays explicitly planned day assignments
 using an `exercise_name` suffix such as `(Dia A)` or `(Dia B)`; a frequency in the
 plan title alone does not assign exercises to days. The backend rejects repeated
 normalized exercise names in the same or unspecified day, even when prescription
-fields differ, and identical prescriptions repeated across days. Semantic
+fields differ. As clarified by CA-15.13, individual identical prescriptions may
+repeat across explicitly assigned days, but full-body A/B/C sheets must have
+distinct exercise selections unless the cited, reviewed recommendation and
+applicability checks in CA-15.13 authorize repetition, while satisfying each
+day's scope and client restrictions. Semantic
 equivalence and evidence comparison remain the writer's responsibility; text
 normalization is not a semantic or clinical ranking. Correction reuses retrieved
 evidence and revalidates final citations, without adding providers or changing
 approved/historical plans.
+
+**Mandatory automatic exercise review amendment (RF-15/RF-18/RF-19,
+2026-10-21):** every newly AI-generated sheet, chat draft replacement and
+resulting adaptation sheet requires automatic review before persistence or
+display as a generated proposal, regardless of full-body, targeted or unspecified
+scope. Use the existing provider-independent assessment adapter and the same
+client-scoped request, onboarding restrictions, equipment and retrieved evidence.
+Each actual session must identify recognizable exercises compatible with the
+requested scope. Resource-only labels such as `Peso corporal`, `Halteres` and
+`Barra`, including day suffixes, are invalid exercise names; the backend rejects
+these obvious cases independently of the model. A targeted sheet must not be
+required to cover unrelated full-body movement patterns. Preserve the full-body
+coverage and variation rules when that scope is requested. Rejected output may
+receive one correction using the same request/evidence and must be reviewed
+again; persistent invalidity, missing/malformed assessments or reviewer outages
+prevent saving/publishing the new content and preserve existing drafts, approved
+plans and history. Ordinary conversation without a proposed sheet needs no
+assessment. Reusing an unchanged existing draft does not generate new content.
+Following the owner's legacy-draft correction on 2026-10-21, reuse must first
+reject obvious invalid exercise names in the persisted sheet. A generation
+request for such a draft regenerates the same sole editable draft and applies
+the complete automatic review, even without an explicit replacement flag or
+detailed chat instruction. Failed regeneration preserves the stored draft for
+correction, but client projections mark it invalid with `validation_error`, omit
+its generated preview, hide its exercise table and provide a regenerate action.
+Invalid persisted sheets cannot be submitted or approved. Existing approved and
+historical content remains unchanged; a failed correction must not turn invalid
+cached content into a successful generation response. Valid unchanged drafts
+retain their existing reuse behavior.
+The incident's live writer/reviewer check also exposed resource-prefixed labels
+such as `Peso corporal — Pressão de joelho` and ambiguous `Flexão de perna`.
+For new AI content, separate resource prefixes followed by a colon or dash from
+an explicitly named movement, preserving the resource in load guidance and the
+existing day/prescription. This lexical normalization never invents a movement:
+resource-only labels or ambiguous remaining names are rejected. In particular,
+reject `Pressão de joelho` / `Flexão de perna` independently of an accepting AI review.
+Plural forms and load-only qualifiers do not resolve those ambiguous movement
+names. Correction instructions must allow replacement of an unidentified
+movement; the prohibition on renaming is limited to disguising duplicate exercises.
+Persisted unnormalized prefixes require repair before reuse/submission. Apply
+normalization to new AI items only, including adaptation candidates, never to
+unchanged approved/historical items. Review and persist the same normalized sheet.
+Correction feedback identifies the exact item position/name and requires a
+recognized movement name, keeping resources in load guidance. Recognizable
+names such as `Barra fixa` and `Agachamento com peso corporal` remain allowed;
+these bounded ambiguity checks do not create a general exercise catalogue.
+The local CPU-only recovery run increases the configured Ollama timeout to
+360 seconds after measured 120-second generation timeouts; the configured
+provider/model, automatic rejection rules and instructor gate are retained.
+The recovery probe found CUDA 12 discovery timing out and falling back to CPU
+on the local RTX 4050, while the CUDA 13 library bundled in the same approved
+Ollama image detected it successfully. The local Compose profile selects that
+bundled library by default through overridable `OLLAMA_LLM_LIBRARY=cuda_v13`;
+this does not change the image version, writing model or inference adapter.
+The same local writer copied rejected exercise labels in non-thinking mode.
+Enable its existing reasoning capability for structured training generation,
+automatic assessment, adaptation and authorized draft edits. Preserve the
+existing mode for interviews, onboarding extraction, focus extraction and plain
+conversation. Consume only the final structured content; never expose, persist
+or log private reasoning. Provider/model selection and instructor approval remain
+unchanged. Known invalid labels still fail independently of the model's assessment.
+This is an automatic quality gate, not a new exercise catalogue, clinical
+certification, approval or activation; instructor review remains mandatory.
+Acceptance: full-body, targeted and unspecified generation, chat edits and
+adaptations all execute the review; known resource-only labels cannot pass even
+with a permissive model; corrected content is reviewed before saving; rejection
+or review failure leaves saved content unchanged; localized valid sheets are
+accepted without requiring full-body coverage; every displayed day is assessed.
 
 The live configured-writer check also exposed expansion of a biceps request
 into triceps/shoulders during focus analysis. Before retrieval, `muscle_groups`

@@ -8,6 +8,7 @@ import { TrainingExerciseTable, trainingRows, trainingTitle } from './components
 import { TrainingKnowledgeSources } from './components/training-knowledge-sources'
 import { EmptyState, LoadingState, PageHeader, StatusNotice } from './components/ui'
 import { createInitialTrainingProposal, getCurrentTrainingPlan, getOwnTrainingDrafts, type CurrentTrainingPlan, type TrainingPlanDraft } from './training-plan'
+import { trainingSessions } from './training-sessions'
 
 type CurrentTrainingPageProps = { accessToken: string; onSignOut: () => void }
 
@@ -55,6 +56,8 @@ export function CurrentTrainingPage({ accessToken, onSignOut }: CurrentTrainingP
   if (plan === undefined) {
     return <ClientShell onSignOut={onSignOut} showClientNavigation><LoadingState label="Carregando seu treino" /></ClientShell>
   }
+  const currentSessions = trainingSessions(plan?.items ?? [])
+  const hasCurrentSessions = currentSessions.some((session) => session.label)
 
   return (
     <ClientShell onSignOut={onSignOut} showClientNavigation>
@@ -97,48 +100,61 @@ export function CurrentTrainingPage({ accessToken, onSignOut }: CurrentTrainingP
                 </Stack>
                 <Divider />
                 <Stack spacing={2}>
-                  {plan.items.map((item) => (
-                    <Box component="article" key={item.position} sx={{ minWidth: 0, p: { xs: 2, sm: 2.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 2.5, bgcolor: 'rgba(16,24,27,0.4)' }}>
-                      <Stack spacing={1.5}>
-                        <Typography color="primary.main" variant="overline">Exercício {item.position}</Typography>
-                        <Typography component="h3" variant="h4" sx={{ overflowWrap: 'anywhere' }}>{item.exercise_name}</Typography>
-                        <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.75 }}>
-                          <Chip label={`${item.sets} séries`} sx={{ fontSize: '0.95rem', px: 0.5, py: 0.5 }} />
-                          <Chip label={`${item.repetitions} repetições`} sx={{ fontSize: '0.95rem', px: 0.5, py: 0.5 }} />
-                          <Chip label={restLabel(item.rest_seconds)} variant="outlined" sx={{ py: 0.5 }} />
+                  {currentSessions.map((session) => <Stack key={session.label} component="section" aria-label={session.label ? `Treino ${session.label}` : hasCurrentSessions ? 'Exercícios sem ficha definida' : 'Exercícios do treino'} spacing={2}>
+                    {hasCurrentSessions && <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between', borderTop: '3px solid', borderColor: 'primary.main', pt: 2 }}>
+                      <Typography component="h3" variant="h3" color="primary.main">{session.label ? `Treino ${session.label}` : 'Exercícios sem ficha definida'}</Typography>
+                      <Chip label={`${session.items.length} ${session.items.length === 1 ? 'exercício' : 'exercícios'}`} size="small" />
+                    </Stack>}
+                    {session.items.map((item) => (
+                      <Box component="article" key={item.position} sx={{ minWidth: 0, p: { xs: 2, sm: 2.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 2.5, bgcolor: 'rgba(16,24,27,0.4)' }}>
+                        <Stack spacing={1.5}>
+                          <Typography color="primary.main" variant="overline">Exercício {item.position}</Typography>
+                          <Typography component={hasCurrentSessions ? 'h4' : 'h3'} variant="h4" sx={{ overflowWrap: 'anywhere' }}>{item.exercise_name}</Typography>
+                          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.75 }}>
+                            <Chip label={`${item.sets} séries`} sx={{ fontSize: '0.95rem', px: 0.5, py: 0.5 }} />
+                            <Chip label={`${item.repetitions} repetições`} sx={{ fontSize: '0.95rem', px: 0.5, py: 0.5 }} />
+                            <Chip label={restLabel(item.rest_seconds)} variant="outlined" sx={{ py: 0.5 }} />
+                          </Stack>
+                          <Box sx={{ borderLeft: '3px solid', borderColor: 'divider', pl: 1.5 }}>
+                            <Typography color="text.secondary" variant="body2">Orientação de carga</Typography>
+                            <Typography sx={{ overflowWrap: 'anywhere' }}>{item.load_guidance}</Typography>
+                            {item.equipment_requirement && <Typography>Equipamento registrado: {item.equipment_requirement}</Typography>}
+                          </Box>
                         </Stack>
-                        <Box sx={{ borderLeft: '3px solid', borderColor: 'divider', pl: 1.5 }}>
-                          <Typography color="text.secondary" variant="body2">Orientação de carga</Typography>
-                          <Typography sx={{ overflowWrap: 'anywhere' }}>{item.load_guidance}</Typography>
-                          {item.equipment_requirement && <Typography>Equipamento registrado: {item.equipment_requirement}</Typography>}
-                        </Box>
-                      </Stack>
-                    </Box>
-                  ))}
+                      </Box>
+                    ))}
+                  </Stack>)}
                 </Stack>
               </Stack>
             </CardContent>
           </Card>
         )}
-        {!error && drafts.map((draft) => (
+        {!error && drafts.map((draft) => {
+          const sessions = trainingSessions(draft.items)
+          const hasSessions = sessions.some((session) => session.label)
+          return (
           <Card component="section" key={`${draft.plan_id}-${draft.version_number}`} variant="outlined" sx={{ borderTop: '3px solid', borderTopColor: 'warning.main' }}>
             <CardContent sx={{ p: { xs: 2.25, sm: 3 } }}>
               <Stack spacing={2}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
                   <Typography color="warning.main" variant="overline">Rascunho — ainda não aprovado</Typography>
-                  <Chip color="warning" label={draft.submitted_for_review_at ? 'Enviado ao instrutor' : 'Aguardando sua confirmação'} size="small" />
+                  <Chip color={draft.validation_error ? 'error' : 'warning'} label={draft.validation_error ? 'Precisa de correção' : draft.submitted_for_review_at ? 'Enviado ao instrutor' : 'Aguardando sua confirmação'} size="small" />
                 </Stack>
-                <Typography component="h2" sx={{ overflowWrap: 'anywhere' }} variant="h3">{trainingTitle(draft.name)}</Typography>
+                <Typography component="h2" sx={{ overflowWrap: 'anywhere' }} variant="h3">{hasSessions ? draft.name : trainingTitle(draft.name)}</Typography>
                 <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Objetivo: {draft.objective}</Typography>
-                <Typography>Status: Aguardando revisão do instrutor</Typography>
-                <StatusNotice severity="info">Este é apenas um rascunho. Seu instrutor precisa revisar, aprovar e ativar a ficha antes que ela se torne seu treino atual.</StatusNotice>
-                <TrainingExerciseTable rows={trainingRows(draft.items)} />
+                <Typography>Status: {draft.validation_error ? 'Rascunho inválido' : 'Aguardando revisão do instrutor'}</Typography>
+                {!draft.validation_error && <StatusNotice severity="info">Este é apenas um rascunho. Seu instrutor precisa revisar, aprovar e ativar a ficha antes que ela se torne seu treino atual.</StatusNotice>}
+                {!draft.validation_error && sessions.map((session) => <Stack key={session.label} component="section" aria-label={session.label ? `Treino ${session.label}` : hasSessions ? 'Exercícios sem ficha definida' : 'Exercícios do treino'} spacing={1.5}>
+                  {(session.label || hasSessions) && <Typography component="h3" variant="h3" color="primary.main">{session.label ? `Treino ${session.label}` : 'Exercícios sem ficha definida'}</Typography>}
+                  <TrainingExerciseTable rows={trainingRows(session.items)} />
+                </Stack>)}
                 <TrainingKnowledgeSources {...draft} />
                 <TrainingDraftReviewActions accessToken={accessToken} draft={draft} onSubmitted={(updated) => setDrafts((items) => items.map((item) => item.id === updated.id ? updated : item))} />
               </Stack>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </Stack>
     </ClientShell>
   )

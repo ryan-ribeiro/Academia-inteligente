@@ -89,6 +89,31 @@ class KeycloakAdminClient:
     def __init__(self, config: KeycloakAdminConfig | None = None) -> None:
         self._config = config or KeycloakAdminConfig.from_environment()
 
+    def ensure_demo_identity(
+        self,
+        email: str,
+        first_name: str,
+        reconciliation_id: UUID,
+        roles: set[str],
+        password: str,
+    ) -> str:
+        """Resume local demo creation without resetting an existing password."""
+        token = self._access_token()
+        subject = self._find_subject_for_reconciliation(token, reconciliation_id)
+        if subject is None:
+            subject = self._create_user(
+                token, email, first_name, "Demonstração", reconciliation_id, password=password
+            )
+        else:
+            self._verify_reconciliation_user(token, subject, email, reconciliation_id)
+        self._reconcile_roles(
+            token,
+            subject,
+            roles,
+            managed={"admin", "client", "employee", "attendant", "instructor"},
+        )
+        return subject
+
     def ensure_client_identity(
         self,
         email: str,
@@ -189,8 +214,11 @@ class KeycloakAdminClient:
     def reconcile_application_roles(self, subject: str, roles: set[str]) -> None:
         self._reconcile_roles(self._access_token(), subject, roles)
 
-    def _reconcile_roles(self, token: str, subject: str, roles: set[str]) -> None:
-        managed = {"client", "employee", "instructor"}
+    def _reconcile_roles(
+        self, token: str, subject: str, roles: set[str], *, managed: set[str] | None = None
+    ) -> None:
+        if managed is None:
+            managed = {"client", "employee", "instructor"}
         current = self._request(
             "GET",
             f"/admin/realms/{self._config.realm}/users/{subject}/role-mappings/realm",
@@ -279,6 +307,8 @@ class KeycloakAdminClient:
         first_name: str,
         surname: str,
         reconciliation_id: UUID,
+        *,
+        password: str | None = None,
     ) -> str:
         payload = {
             "username": email,
@@ -292,6 +322,9 @@ class KeycloakAdminClient:
                 "academia_provisioning_id": [str(reconciliation_id)],
             },
         }
+        if password is not None:
+            # Credentials are created atomically with this demo identity, only in Keycloak.
+            payload["credentials"] = [{"type": "password", "value": password, "temporary": False}]
         location = self._request(
             "POST", f"/admin/realms/{self._config.realm}/users", token, payload
         )

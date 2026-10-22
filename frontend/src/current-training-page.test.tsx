@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { CurrentTrainingPage } from './current-training-page'
@@ -64,6 +64,111 @@ test('shows an own draft as pending instructor approval, not as the current plan
   expect(await screen.findByRole('heading', { name: 'Treino A — Rascunho de força' })).toBeInTheDocument()
   expect(screen.getByText('Rascunho — ainda não aprovado')).toBeInTheDocument()
   expect(screen.getByText(/Seu instrutor precisa revisar, aprovar e ativar/)).toBeInTheDocument()
+})
+
+test('blocks a legacy invalid draft and regenerates it through the initial proposal endpoint', async () => {
+  const invalid = {
+    ...currentPlan, id: 'legacy-draft', revision: 1, status: 'proposal', origin: 'ai',
+    submitted_for_review_at: null, validation_error: 'Este rascunho contém exercícios inválidos e precisa ser gerado novamente.',
+    items: [{ ...currentPlan.items[0], exercise_name: 'Peso corporal (Dia A)' }],
+  }
+  const corrected = { ...invalid, revision: 2, validation_error: undefined, items: currentPlan.items }
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [invalid] })
+    .mockResolvedValueOnce({ ok: true, json: async () => corrected })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  const regenerate = await screen.findByRole('button', { name: 'Gerar nova ficha' })
+  expect(screen.getByText('Status: Rascunho inválido')).toBeInTheDocument()
+  expect(screen.queryByText('Peso corporal (Dia A)')).not.toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Enviar rascunho para minha revisão' })).not.toBeInTheDocument()
+  fireEvent.click(regenerate)
+  expect(await screen.findByText('Agachamento')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Enviar rascunho para minha revisão' })).toBeInTheDocument()
+  expect(fetchMock.mock.calls[2][0]).toBe('http://localhost:8000/training/initial-proposal')
+  expect(fetchMock.mock.calls[2][1].method).toBe('POST')
+})
+
+test.each([422, 502])('shows failed validation (%s) during legacy regeneration without claiming onboarding is missing', async (status) => {
+  const invalid = {
+    ...currentPlan, id: 'legacy-draft', revision: 1, status: 'proposal', origin: 'ai',
+    submitted_for_review_at: null, validation_error: 'Este rascunho contém exercícios inválidos e precisa ser gerado novamente.',
+    items: [{ ...currentPlan.items[0], exercise_name: 'Peso corporal (Dia A)' }],
+  }
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [invalid] })
+    .mockResolvedValueOnce({ ok: false, status, json: async () => ({ detail: 'AI training proposal could not be validated' }) }))
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Gerar nova ficha' }))
+  expect(await screen.findByText(/A ficha gerada não passou pela validação automática/)).toBeInTheDocument()
+  expect(screen.queryByText(/Conclua seu onboarding/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Enviar rascunho para minha revisão' })).not.toBeInTheDocument()
+})
+
+test.each(['current', 'draft'])('separates A/B/C exercises and restarts their numbering in the %s sheet', async (state) => {
+  const item = currentPlan.items[0]
+  const multiDay = {
+    ...currentPlan, id: 'draft-abc', revision: 1, origin: 'ai', submitted_for_review_at: null,
+    name: 'Corpo inteiro — três dias', status: state === 'current' ? 'current' : 'proposal',
+    items: [
+      { ...item, position: 5, exercise_name: 'Ponte de quadril (Dia C)' },
+      { ...item, position: 3, exercise_name: 'Remada (Dia B)' },
+      { ...item, position: 2, exercise_name: 'Flexão de braços (Dia A)' },
+      { ...item, position: 1, exercise_name: 'Agachamento (Dia A)' },
+      { ...item, position: 4, exercise_name: 'Agachamento (Dia B)' },
+      { ...item, position: 6, exercise_name: 'Alongamento leve' },
+    ],
+  }
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: state === 'current' ? multiDay : null }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => state === 'draft' ? [multiDay] : [] }))
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  await screen.findByRole('heading', { name: 'Corpo inteiro — três dias' })
+  const sections = ['A', 'B', 'C'].map((label) => screen.getByRole('region', { name: `Treino ${label}` }))
+  const expectedNames = [['Agachamento', 'Flexão de braços'], ['Remada', 'Agachamento'], ['Ponte de quadril']]
+  for (const [index, section] of sections.entries()) {
+    expect(within(section).getByRole('heading', { name: `Treino ${'ABC'[index]}` })).toBeInTheDocument()
+    if (state === 'current') {
+      const exercises = within(section).getAllByRole('article')
+      expect(exercises).toHaveLength(expectedNames[index].length)
+      exercises.forEach((exercise, order) => {
+        expect(within(exercise).getByText(`Exercício ${order + 1}`)).toBeInTheDocument()
+        expect(within(exercise).getByRole('heading', { name: expectedNames[index][order] })).toBeInTheDocument()
+      })
+    } else {
+      const rows = within(within(section).getByRole('table')).getAllByRole('row').slice(1)
+      expect(rows).toHaveLength(expectedNames[index].length)
+      rows.forEach((row, order) => {
+        expect(within(row).getByRole('rowheader', { name: String(order + 1) })).toBeInTheDocument()
+        expect(within(row).getByText(expectedNames[index][order])).toBeInTheDocument()
+      })
+    }
+  }
+  const unassigned = screen.getByRole('region', { name: 'Exercícios sem ficha definida' })
+  expect(within(unassigned).getByText('Alongamento leve')).toBeInTheDocument()
+  expect(screen.queryByText(/\(Dia [ABC]\)/)).not.toBeInTheDocument()
+  expect(multiDay.items[0].exercise_name).toBe('Ponte de quadril (Dia C)')
+  expect(multiDay.items[0].position).toBe(5)
+})
+
+test('recognizes legacy numbered day suffixes without stripping other exercise instructions', async () => {
+  const plan = { ...currentPlan, items: [
+    { ...currentPlan.items[0], exercise_name: 'Agachamento (com apoio) (dia 1)', position: 1 },
+    { ...currentPlan.items[0], exercise_name: 'Remada (Dia 2)', position: 2 },
+    { ...currentPlan.items[0], exercise_name: 'Ponte de quadril (Dia 3)', position: 3 },
+  ] }
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ plan }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => [] }))
+  render(<CurrentTrainingPage accessToken="access-token" onSignOut={vi.fn()} />)
+  const first = await screen.findByRole('region', { name: 'Treino A' })
+  expect(within(first).getByRole('heading', { name: 'Agachamento (com apoio)' })).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Treino B' })).getByText('Remada')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Treino C' })).getByText('Ponte de quadril')).toBeInTheDocument()
 })
 
 test('renders a clear empty state when the client has no current plan', async () => {

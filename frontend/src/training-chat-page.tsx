@@ -117,8 +117,8 @@ export function TrainingChatPage({ accessToken, onSignOut }: TrainingChatPagePro
           {!previewInLastReply && <>
             <Typography component="h2" variant="h3">{trainingTitle(draft.name)}</Typography>
             <Typography>Objetivo: {draft.objective}</Typography>
-            <Typography>Status: Aguardando revisão do instrutor</Typography>
-            <TrainingExerciseTable rows={trainingRows(draft.items)} />
+            <Typography>Status: {draft.validation_error ? 'Rascunho inválido' : 'Aguardando revisão do instrutor'}</Typography>
+            {!draft.validation_error && <TrainingExerciseTable rows={trainingRows(draft.items)} />}
             <TrainingKnowledgeSources {...draft} />
           </>}
           <TrainingDraftReviewActions accessToken={accessToken} draft={draft} disabled={busy} onSubmitted={(updated) => setChat((previous) => previous && (!previous.draft || previous.draft.revision <= updated.revision) ? { ...previous, draft: updated } : previous)} />

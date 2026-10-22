@@ -37,6 +37,26 @@ last name for it. `KEYCLOAK_ADMIN` credentials are only for the Keycloak
 administration console. The frontend origin must be listed in
 `CORS_ALLOWED_ORIGINS` (the local default is `http://localhost:5173`).
 
+Local Docker Compose startup also creates these demo accounts automatically:
+
+| Profile | Email | Initial password |
+| --- | --- | --- |
+| Administrator | `admin@academia.test` | `123` |
+| Client | `cliente@academia.test` | `123` |
+| Employee | `funcionario@academia.test` | `123` |
+| Attendant | `atendente@academia.test` | `123` |
+| Instructor | `instrutor@academia.test` | `123` |
+
+Initialization runs after migrations and waits for Keycloak. Existing completed
+demo accounts retain their passwords, data, and activation on subsequent starts.
+An interrupted seed resumes using its persisted ownership marker; unrelated
+accounts with the same email are rejected. Client and instructor records include
+synthetic personal data; onboarding and biometric enrollment remain pending.
+Employee and attendant accounts have only the capabilities already defined for
+their roles. Set `SEED_DEMO_ACCOUNTS=false` to disable creation, or configure
+`DEMO_ACCOUNT_PASSWORD` to change the initial password for newly created demo
+users. The standalone production stack does not enable demo initialization.
+
 When an administrator creates a client, the backend creates a Keycloak user
 with only the `client` role and sends a Mailpit first-access message. Open the
 message at `http://localhost:8025`, follow its Keycloak link, define the

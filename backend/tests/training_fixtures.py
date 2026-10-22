@@ -4,7 +4,23 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from app.integrations.ai import AiTrainingPlanAssessment
 from app.modules.clients.models import Account, Employee, PersonProfile
+
+
+class AcceptingTrainingReviewer:
+    """Explicit reviewer stub for flows whose assertions are unrelated to exercise validity."""
+
+    def assess_training(self, context):
+        if not hasattr(self, "review_contexts"):
+            self.review_contexts = []
+        self.review_contexts.append(context)
+        return AiTrainingPlanAssessment(
+            sessions=[
+                {"label": label, "complete": True, "issues": []}
+                for label in context["training_schedule"]["session_labels"] or [""]
+            ]
+        )
 
 
 def submitted_draft(session, version):

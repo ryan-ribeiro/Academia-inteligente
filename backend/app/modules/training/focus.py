@@ -25,13 +25,18 @@ def _normalized(value: str) -> str:
 def analyze_training_focus(
     operation: Callable[[dict[str, object]], AiTrainingRequestFocus], request: str
 ) -> dict[str, object]:
-    context: dict[str, object] = {"training_request": request}
     text = _normalized(request)
     body_term = r"(?:corpo inteiro|todo o corpo|full[ -]?body)"
     full_body_requested = bool(
         re.search(r"\b" + body_term + r"\b", text)
         and not re.search(r"\bnao(?:\s+\w+){0,3}\s+" + body_term + r"\b", text)
     )
+    context: dict[str, object] = {
+        "training_request": request,
+        "focus_constraints": {
+            "allowed_scopes": ["full_body"] if full_body_requested else ["targeted", "unspecified"],
+        },
+    }
     for attempt in range(2):
         focus = operation(context)
         scope_matches = (focus.scope == "full_body") == full_body_requested
@@ -48,10 +53,14 @@ def analyze_training_focus(
         if attempt:
             raise InvalidTrainingFocusError("ungrounded_training_focus")
         context = {
+            **context,
             "training_request": request,
             "focus_correction": {
                 "rejected_focus": focus.model_dump(),
                 "instruction": (
+                    "Respeite focus_constraints.allowed_scopes. Refazer toda a ficha do zero "
+                    "não é um pedido explícito de corpo inteiro. Sem músculos ou regiões "
+                    "explícitos, retorne scope=unspecified e muscle_groups=[]. "
                     "Se o pedido é de corpo inteiro ou todo o corpo, mantenha scope=full_body "
                     "e retorne muscle_groups=[]; não abrevie a expressão nem a trate como "
                     "um grupo muscular localizado. "

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.modules.clients.models import Account, Client, Employee
 from app.modules.equipment.service import EquipmentService
 from app.modules.knowledge.service import KnowledgeResult
+from app.modules.training.completeness import IncompleteTrainingPlanError, validate_exercise_names
 from app.modules.training.models import (
     TrainingAdaptationProposal,
     TrainingPlan,
@@ -468,6 +469,7 @@ class TrainingLifecycleService:
             raise InvalidTrainingTransitionError
         if version.revision != expected_revision:
             raise ConcurrentTrainingUpdateError
+        self.validate_exercises(self.content(session, version))
         if version.submitted_for_review_at is None:
             version.submitted_for_review_at = datetime.now(UTC)
             version.updated_at = version.submitted_for_review_at
@@ -542,11 +544,30 @@ class TrainingLifecycleService:
             raise InvalidTrainingContentError from error
 
     @staticmethod
+    def validate_exercises(data: TrainingPlanVersionInput) -> None:
+        try:
+            validate_exercise_names(data)
+        except IncompleteTrainingPlanError as error:
+            raise InvalidTrainingContentError from error
+
+    @staticmethod
+    def has_invalid_exercises(session: Session, version: TrainingPlanVersion) -> bool:
+        """Legacy drafts are untrusted even when their original generation succeeded."""
+        try:
+            TrainingLifecycleService.validate_exercises(
+                TrainingLifecycleService.content(session, version)
+            )
+        except InvalidTrainingContentError:
+            return True
+        return False
+
+    @staticmethod
     def validate_equipment(
         session: Session,
         data: TrainingPlanVersionInput,
         preserved: TrainingPlanVersion | None = None,
     ) -> None:
+        TrainingLifecycleService.validate_exercises(data)
         # Only exact approved content is grandfathered, never a newly saved draft
         # or a whole model ID. Multiplicity prevents duplicating an exempt item.
         baseline = preserved

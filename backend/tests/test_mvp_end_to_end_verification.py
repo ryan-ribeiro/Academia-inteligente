@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
-from training_fixtures import instructor
+from training_fixtures import AcceptingTrainingReviewer, instructor
 
 from app.database import Base, get_database_session
 from app.integrations.ai import (
@@ -39,7 +39,7 @@ class MutableIdentityProvider:
         return self.identity
 
 
-class GenerationProvider:
+class GenerationProvider(AcceptingTrainingReviewer):
     def generate_training(self, context: dict[str, object]) -> AiTrainingGenerationResponse:
         assert context["completed_onboarding"]
         return AiTrainingGenerationResponse(
@@ -82,7 +82,7 @@ class FailingChatProvider:
         raise AiProviderError("unavailable", retryable=False)
 
 
-class AdaptationProvider:
+class AdaptationProvider(AcceptingTrainingReviewer):
     def generate_adaptation(self, context: dict[str, object]) -> AiTrainingAdaptationResponse:
         assert context["base_plan"]
         return AiTrainingAdaptationResponse(

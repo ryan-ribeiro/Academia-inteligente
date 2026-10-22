@@ -24,12 +24,14 @@ from app.modules.training.completeness import (
     IncompleteTrainingPlanError,
     requested_training_schedule,
     split_training_day,
+    validate_exercise_names,
 )
 from app.modules.training.focus import InvalidTrainingFocusError, analyze_training_focus
 from app.modules.training.knowledge_query import retrieve_training_knowledge
 from app.modules.training.schema import TrainingPlanVersionInput
 from app.modules.training.selection import (
     RedundantTrainingExerciseError,
+    exercise_selection_correction,
     request_selected_training,
 )
 from app.modules.training.service import (
@@ -103,9 +105,12 @@ class InitialTrainingGenerationService:
             raise CompletedOnboardingRequiredError
 
         # Every client has at most one proposal, regardless of its creator.
-        # Reusing it prevents a provider call and preserves the single-draft rule.
+        # Only valid content may be reused; legacy resource-only drafts must be regenerated.
         existing = self._lifecycle.find_proposal(session, client_id=scope.client_id)
-        if existing is not None and not replace_existing:
+        invalid_existing = existing is not None and self._lifecycle.has_invalid_exercises(
+            session, existing
+        )
+        if existing is not None and not replace_existing and not invalid_existing:
             return existing
         expected_revision = existing.revision if existing else None
 
@@ -151,6 +156,25 @@ class InitialTrainingGenerationService:
         # Keep the actual requested scope beside the final writing instruction.
         context["training_focus"] = context.pop("training_focus")
         context["training_request"] = context.pop("training_request")
+        if invalid_existing:
+            try:
+                previous = self._lifecycle.content(session, existing)
+            except InvalidTrainingContentError:
+                # Malformed legacy structure has no reusable sheet; regenerate from onboarding.
+                pass
+            else:
+                try:
+                    validate_exercise_names(previous)
+                except IncompleteTrainingPlanError as error:
+                    context["selection_correction"] = exercise_selection_correction(
+                        previous, error.issues
+                    )
+                    # Names/positions explain the defect; do not prime the writer to copy
+                    # the complete invalid legacy prescription as its new output template.
+                    context["selection_correction"]["rejected_plan"] = {
+                        "name": previous.name,
+                        "objective": previous.objective,
+                    }
         try:
             response = self._generate_complete_routine(context, evidence)
             proposal = TrainingPlanVersionInput.model_validate(response.plan)
@@ -215,9 +239,11 @@ class InitialTrainingGenerationService:
         except ActiveTrainingProposalExistsError:
             # Another request created the sole draft while the provider was running.
             existing = self._lifecycle.find_proposal(session, client_id=scope.client_id)
-            if existing is not None:
+            if existing is not None and not self._lifecycle.has_invalid_exercises(
+                session, existing
+            ):
                 return existing
-            raise
+            raise InvalidTrainingGenerationError from None
         except InvalidTrainingContentError:
             record_turn(reason="invalid_training_equipment")
             raise InvalidTrainingGenerationError from None
@@ -263,8 +289,6 @@ class InitialTrainingGenerationService:
         )
 
     def _generate_session(self, context: dict):
-        focus = context["training_focus"]
-
         def write(selected_context):
             response = self._retry(lambda: self._provider.generate_training(selected_context))
             label = selected_context.get("training_session", {}).get("label")
@@ -292,9 +316,7 @@ class InitialTrainingGenerationService:
                 lambda review_context: self._retry(
                     lambda: self._provider.assess_training(review_context)
                 )
-            )
-            if focus and focus["scope"] == "full_body"
-            else None,
+            ),
         )
 
     @staticmethod
